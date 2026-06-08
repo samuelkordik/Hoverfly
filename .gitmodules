@@ -1,0 +1,3 @@
+[submodule "Firmware"]
+	path = Firmware
+	url = https://samuelkordik@github.com/samuelkordik/Marlin
