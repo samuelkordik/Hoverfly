@@ -19,11 +19,14 @@ Using the "Creality/Ender-3 Pro/BigTreeTech SKR Mini E3 2.0" config example, wit
 #define DEFAULT_KI 1.54
 #define DEFAULT_KD 76.55
 
+#define DEFAULT_AXIS_STEPS_PER_UNIT { 80, 80, 400, 423 } // E calibrated for the Sprite Extruder Pro
+#define EDITABLE_STEPS_PER_UNIT                           // Allow tuning steps/mm from the LCD / via M92
+
 //#define Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN      // Probe is connected to Z-probe slot on board, not Z endstop.
 #define USE_PROBE_FOR_Z_HOMING                    // Force use of probe for Z-axis homing
 #define BLTOUCH
 #define NOZZLE_TO_PROBE_OFFSET {-30, -40, -3.49 } // Experimentally verified.
-#define PROBING_MARIN 50                          // Wanting to stay inside bed cleanly
+#define PROBING_MARGIN 50                         // Wanting to stay inside bed cleanly
 #define XY_PROBE_FEEDRATE (50*60)                 // Not sure why
 #define MULTIPLE_PROBING 2                        // Doing two readings (average of fast + slow) seems like a good idea.
 #define Z_PROBE_OFFSET_RANGE_MIN -10
@@ -51,3 +54,53 @@ And in Configuration_adv.h:
 
 #define E0_AUTO_FAN_PIN FAN1_PIN                  // Hot-end fan is wired to FAN1 connector on board
 ```
+
+## Changes Since Last Documented
+
+These adjustments were made to the Marlin configuration *after* the table above
+was first written and were not reflected in it. They are highlighted here so the
+delta is easy to track.
+
+### `Configuration.h`
+
+- **Extruder steps/mm: `93` → `423`.** `DEFAULT_AXIS_STEPS_PER_UNIT` was bumped
+  from the stock Ender-3 value to calibrate the **E axis** for the Sprite
+  Extruder Pro direct drive. The X/Y/Z values (`80, 80, 400`) are unchanged.
+
+  ```c
+  -#define DEFAULT_AXIS_STEPS_PER_UNIT   { 80, 80, 400, 93 }
+  +#define DEFAULT_AXIS_STEPS_PER_UNIT   { 80, 80, 400, 423 }
+  ```
+
+- **Added `EDITABLE_STEPS_PER_UNIT`.** Enables tuning steps/mm at runtime from
+  the LCD or via `M92` (and storing it to EEPROM), which makes dialing in the
+  new extruder calibration easier.
+
+- **`NUM_M106_FANS` example changed `1` → `2`.** Still commented out, so this is
+  a no-op functionally — noted only for completeness.
+
+  ```c
+  -//#define NUM_M106_FANS 1
+  +//#define NUM_M106_FANS 2
+  ```
+
+### `Marlin/src/pins/stm32f1/pins_BTT_SKR_MINI_E3_V2_0.h`
+
+- **Disabled the board-default controller-fan pin.** The `CONTROLLER_FAN_PIN`
+  fallback to `FAN1_PIN` was commented out. This complements the disabled
+  `USE_CONTROLLER_FAN` in `Configuration_adv.h` and keeps **FAN1** dedicated to
+  the hot-end auto-fan (`E0_AUTO_FAN_PIN`), since the mainboard fan is wired to
+  PWR rather than a fan header.
+
+  ```c
+  -#ifndef CONTROLLER_FAN_PIN
+  -  #define CONTROLLER_FAN_PIN            FAN1_PIN
+  -#endif
+  +// #ifndef CONTROLLER_FAN_PIN
+  +//   #define CONTROLLER_FAN_PIN            FAN1_PIN
+  +// #endif
+  ```
+
+> Note: these changes currently exist as uncommitted edits in the `Firmware`
+> submodule (working tree), so they are not yet captured in the submodule's git
+> history.
