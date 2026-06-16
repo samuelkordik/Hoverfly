@@ -84,7 +84,7 @@
 <p>The configuration is already a solid, sane Ender-3-Pro-on-SKR-Mini-E3 setup: TMC2209 UART,
 junction deviation, S-curve, thermal protection, EEPROM, ABL bilinear, and E-steps already
 calibrated for the Sprite (<code>423</code>). The highest-value gap is <strong>an untuned Linear
-Advance</strong> (and the S-curve conflict it exposes). The "dual Z" wiring is <strong>confirmed fine</strong>
+Advance</strong> (S-curve coexists with it fine on Marlin 2.1.2.7 — §2). The "dual Z" wiring is <strong>confirmed fine</strong>
 (parallel, one driver — §1). Everything else is incremental.</p>
 
 <table>
@@ -92,7 +92,7 @@ Advance</strong> (and the S-curve conflict it exposes). The "dual Z" wiring is <
   <tbody>
     <tr><td>1</td><td>Dual-Z wiring</td><td>Two motors <strong>parallel</strong> on one Z driver (Creality kit cable); firmware single-Z (correct)</td><td>Works as-is. Raise Z current if torque is short; series is an optional cable swap</td><td><span class="pill lo">LOW</span></td></tr>
     <tr><td>2</td><td>Linear Advance</td><td><code>LIN_ADVANCE</code> on, <code>ADVANCE_K 0.0</code></td><td>Calibrate K (≈0.02–0.10 for Sprite direct drive)</td><td><span class="pill hi">HIGH</span></td></tr>
-    <tr><td>2b</td><td>S-curve × Linear Advance (<a href="#linadv">§2</a>)</td><td><code>S_CURVE_ACCELERATION</code> + <code>LIN_ADVANCE</code> both on</td><td>Disable <code>S_CURVE_ACCELERATION</code> — Marlin flags the pair incompatible</td><td><span class="pill hi">HIGH</span></td></tr>
+    <tr><td>2b</td><td>S-curve × Linear Advance (<a href="#linadv">§2</a>)</td><td><code>S_CURVE_ACCELERATION</code> + <code>LIN_ADVANCE</code> both on (OK on Marlin 2.1.2.7)</td><td>Optional: try with S-curve off; not required — the pair is supported</td><td><span class="pill lo">LOW</span></td></tr>
     <tr><td>3</td><td>Live Z-offset</td><td><code>BABYSTEP_ZPROBE_OFFSET</code> off</td><td>Enable so babysteps adjust &amp; save probe Z-offset</td><td><span class="pill med">MED</span></td></tr>
     <tr><td>4</td><td>Bed heating</td><td>bang-bang (<code>PIDTEMPBED</code> off)</td><td>Optional: enable bed PID + autotune for tighter temp</td><td><span class="pill med">MED</span></td></tr>
     <tr><td>5</td><td>Probe coverage</td><td><code>PROBING_MARGIN 50</code></td><td>Reduce to ~20–30 mm to mesh more of the bed</td><td><span class="pill med">MED</span></td></tr>
@@ -110,10 +110,13 @@ driver (<code>Z2_DRIVER_TYPE</code> stays commented): the <strong>SKR Mini E3 V2
 (X, Y, Z, E0) and no spare socket, so a second <em>independent</em> Z driver isn't possible on this board.
 This works — the notes below are optional.</p>
 <div class="note"><strong>Parallel current — the one thing to watch.</strong> Both motors share the one
-TMC2209, so they split its current (each gets roughly half unless you raise it). If Z ever lacks torque or
-skips, raise the <strong>Z driver current</strong> (<code>UART_CURRENT_MA</code> in the TMC2209 section,
-e.g. toward 800–1000&nbsp;mA) and check the driver isn't running hot (TMC2209 ≈ 1.4&nbsp;A RMS ceiling).
-Z moves slowly, so this is rarely a problem in practice.</div>
+TMC2209, so they split its current. Stock Z current is <strong>580&nbsp;mA</strong> (<code>Z_CURRENT</code>,
+Configuration_adv.h:2777). If Z ever lacks torque or skips, raise it via <code>Z_CURRENT</code> (reflash)
+or live with the <code>SET_ZCURRENT.gcode</code> SD macro (<code>M906 Z</code> + <code>M500</code>, UART
+mode, no reflash). The driver's <em>set</em> current is the <strong>total</strong> it sources for both
+motors — it divides ~50/50 on average but shifts with each motor's load/back-EMF, so budget against the
+<strong>driver's ≈1.4&nbsp;A RMS ceiling</strong> (total), not a per-motor figure. Keep it ≤ ~1000&nbsp;mA
+and check the driver isn't running hot. Z moves slowly, so this is rarely a problem in practice.</div>
 <div class="note"><strong>Series is cleaner, but it's a hardware swap.</strong> Wiring the two motors in
 <em>series</em> gives both full, synchronized current within the driver's rating (Z's low speed makes the
 doubled inductance irrelevant) — the conventional choice for two motors on one driver. But the stock
@@ -160,9 +163,13 @@ lead screws to equal height). This stays true even under the planned <a href="#k
 <div class="warn"><strong>One firmware add for the blowers.</strong> 5015 blowers often won't start spinning
 at low slicer PWM. Give them a kickstart pulse and a floor:
 <pre><code>// Configuration_adv.h
-#define FAN_KICKSTART_TIME 150   // full-speed pulse on start (ms)
-#define FAN_MIN_PWM 75           // ~30% floor so they don't stall</code></pre>
+#define FAN_KICKSTART_TIME 150   // (ms) full-speed pulse on start
+#define FAN_MIN_PWM 75           // out of 255 (~29%), not a percent — floor so they don't stall</code></pre>
 Then the slicer's 0%→100% ramp won't leave them stalled at low speeds.</div>
+<div class="note"><strong><code>FAN_MIN_PWM</code> only rescales non-zero speeds.</strong> A commanded
+<strong>0 is always fully off</strong> (Marlin's own comment: <em>"Value 0 always turns off the fan."</em>),
+so your layer-1 0% fan still means no airflow — PLA bed adhesion is unaffected. The ~29% floor applies only
+when the slicer asks for a low but non-zero speed.</div>
 <div class="note"><strong>PLA duct caveat.</strong> The Taurus V5 duct is printed in <strong>PLA</strong>,
 which softens near ~60&nbsp;°C — right next to the hotend it can sag over long/hot prints. Keep an eye on it
 and reprint in PETG/ABS/ASA if it deforms. Cooling itself is great — dual blowers move a lot of air, so keep
@@ -173,17 +180,19 @@ the layer-1 fan low for bed adhesion (the Orca profiles already ramp 0%→100% b
 Linear Advance pays off most on a <strong>light direct-drive</strong> setup like the Sprite Pro: it
 pressure-compensates the extruder so corners, line starts/stops and seams stay crisp instead of
 bulging. The default 0.0 leaves that on the table.</p>
-<div class="warn"><strong>Fix this first — latent conflict:</strong> <code>S_CURVE_ACCELERATION</code> and
-<code>LIN_ADVANCE</code> are <strong>both enabled</strong>, a combination Marlin's own sanity check
-rejects (it <code>#error</code>s) unless you force <code>EXPERIMENTAL_SCURVE</code>. The pairing is
-known-buggy: S-curve's Bézier acceleration profile breaks Linear Advance's pressure-timing
-prediction, causing over/under-extrusion at accel/decel edges (worst at high speed + low accel). If
-your build currently compiles, <code>EXPERIMENTAL_SCURVE</code> is masking the guard — don't rely on
-it. <strong>Comment out <code>S_CURVE_ACCELERATION</code></strong> so Linear Advance times correctly;
-junction deviation already does the corner-smoothing S-curve was there for.
+<div class="note"><strong>S-curve + Linear Advance is fine on this Marlin (not a conflict).</strong>
+<code>S_CURVE_ACCELERATION</code> (<code>Configuration.h:1293</code>) and <code>LIN_ADVANCE</code> are
+both on, and on <strong>Marlin 2.1.2.7 that is supported</strong> — the old sanity-check
+<code>#error</code> that rejected the pair was removed. Current Marlin guards the LA/S-curve math with
+<code>#if ANY(S_CURVE_ACCELERATION, LIN_ADVANCE)</code> (<code>planner.cpp</code>, <code>planner.h</code>)
+and compiles both together. No <code>EXPERIMENTAL_SCURVE</code> is needed — in fact defining it now
+<em>breaks</em> the build (<code>inc/Changes.h</code>: "EXPERIMENTAL_SCURVE is no longer needed and
+should be removed"), and it is not set here. <strong>The build is not secretly broken.</strong>
+Disabling S-curve is now an <em>optional preference</em>, not a fix: some find Linear Advance pressure
+timing crispest with it off, since junction deviation already smooths corners.
 <pre><code>// Configuration.h
-//#define S_CURVE_ACCELERATION   // disabled: incompatible with LIN_ADVANCE</code></pre>
-Refs: <a href="https://github.com/MarlinFirmware/Marlin/issues/22547">Marlin #22547</a>,
+//#define S_CURVE_ACCELERATION   // optional: try LA without S-curve</code></pre>
+Refs (historical, now resolved): <a href="https://github.com/MarlinFirmware/Marlin/issues/22547">Marlin #22547</a>,
 <a href="https://github.com/MarlinFirmware/Marlin/issues/14728">#14728</a>.</div>
 <p><strong>Recommended:</strong> calibrate K. Direct-drive PLA on a Sprite typically lands around
 <code>0.02–0.10</code> (much lower than Bowden’s ~0.4–0.8). Don’t guess — measure it:</p>
@@ -246,11 +255,14 @@ central <strong>~110 × 110 mm</strong> of the bed — the outer ~50 mm ring is 
 extrapolated. Combined with the large probe offset (<code>{-30,-40}</code>) this was likely chosen to
 keep the probe physically on the bed, but 50 mm is conservative. Reducing it meshes more of your
 actual print area.</p>
-<pre><code>#define PROBING_MARGIN 25   // was 50 — verify the probe still lands on the bed at the corners</code></pre>
-<div class="warn">After lowering it, run <code>G29</code> and watch the first/last points: the
-<em>nozzle</em> can reach the bed edge, but the <em>probe</em> sits 30 mm left and 40 mm in front, so
-the usable margin is limited by the probe, not the nozzle. If the probe tries to deploy off the bed,
-raise the margin back up.</div>
+<pre><code>#define PROBING_MARGIN 25   // was 50 — Marlin auto-clamps the grid to X∈[25,180] Y∈[25,170]; stays on bed</code></pre>
+<div class="note">Marlin <strong>auto-clamps</strong> the probe grid so the pin always stays on the bed —
+no trial-and-error off a hot bed needed. With offset <code>{-30,-40}</code> and <code>PROBING_MARGIN 25</code>,
+<code>probe.h</code>'s <code>_min/_max</code> bounds give the sampled region
+<strong>X ∈ [25, 180], Y ∈ [25, 170]</strong> (<code>max_x = MIN(210−25, 210−30) = 180</code>,
+<code>max_y = MIN(210−25, 210−40) = 170</code>). The far edges are pulled in by the <em>offset</em>, not the
+margin; the margin only governs how close to the front/left near edges the pin lands. The probe never
+deploys off the bed at 25 (it stays on even down to ~10), so 25 is a conservative, verified-safe choice.</div>
 
 <h2 id="grid">6. Bed mesh density 4×4 → 5×5 <span class="pill lo">LOW</span></h2>
 <p>A 4×4 grid is coarse for a 210 mm bed. <code>5×5</code> (25 points) better captures a warped or
@@ -288,9 +300,10 @@ accurate first layer.</p>
 </div>
 
 <div class="warn"><strong>Probe the mesh at print temperature.</strong> <code>PREHEAT_BEFORE_LEVELING</code> is
-on (good), but check <code>LEVELING_BED_TEMP</code> — if it's left at a low preheat default (often
-~50&nbsp;°C) it's <strong>below your ~60&nbsp;°C PLA bed</strong>. An aluminum bed warps differently when
-hot, so a mesh probed cold misses warp that's present while printing. Set it to your usual bed temp, or
+on (good), but <code>LEVELING_BED_TEMP</code> is currently set to <strong>50</strong>
+(Configuration.h:1936) — <strong>below your ~60&nbsp;°C PLA bed</strong>, so the mesh is probed ~10&nbsp;°C
+cold. An aluminum bed warps differently when hot, so a mesh probed cold misses warp that's present while
+printing. Set it to your usual bed temp, or
 probe fresh in the slicer start G-code after the bed soaks: <code>#define LEVELING_BED_TEMP 60</code> — or <code>M190 S60</code> → <code>G4 S300</code> (soak) →
 <code>G28</code> → <code>G29</code> → <code>M500</code>. (An <code>M48 P10</code> probe-repeatability check —
 target σ&nbsp;&lt;&nbsp;0.02&nbsp;mm — is worthwhile too, but it only reports over serial, so it waits for the
@@ -299,7 +312,7 @@ target σ&nbsp;&lt;&nbsp;0.02&nbsp;mm — is worthwhile too, but it only reports
 <h2 id="shaping">7. Input Shaping on an STM32F103 <span class="pill med">MED</span></h2>
 <p>Input Shaping (<code>INPUT_SHAPING_X/Y</code>) cancels ringing/ghosting and lets you run higher
 acceleration without artifacts — a real quality win. The catch: the SKR Mini E3 V2.0 is an
-<strong>STM32F103 (72 MHz, 20 KB RAM)</strong>. Marlin IS is supported but memory- and CPU-hungry; on
+<strong>STM32F103RC (72 MHz, 48 KB SRAM)</strong>. Marlin IS is supported but memory- and CPU-hungry; on
 this MCU the build can overflow or the step rate can be limited.</p>
 <ul>
   <li><strong>Try it:</strong> enable <code>INPUT_SHAPING_X</code> / <code>INPUT_SHAPING_Y</code>, set
@@ -354,7 +367,7 @@ Advance K <em>after</em> Input Shaping</strong> — the IS sweep runs with LA of
   <tbody>
     <tr><td><code>DEFAULT_ACCELERATION</code></td><td>500</td><td>Safe/conservative. The Sprite is light; you can likely raise print accel to 1000–2000 after a ringing test. Tune empirically.</td></tr>
     <tr><td><code>JUNCTION_DEVIATION_MM</code></td><td>0.08</td><td>Good general value. Lower (0.05) = crisper corners/slower; higher (0.10–0.13) = faster/rounder. Leave at 0.08 unless chasing speed.</td></tr>
-    <tr><td><code>S_CURVE_ACCELERATION</code></td><td>on</td><td><strong>Disable it</strong> — incompatible with <code>LIN_ADVANCE</code> (see <a href="#linadv">§2</a>). Junction deviation already handles corner smoothing.</td></tr>
+    <tr><td><code>S_CURVE_ACCELERATION</code></td><td>on</td><td>Fine with <code>LIN_ADVANCE</code> on this Marlin version (see <a href="#linadv">§2</a>); disabling it is optional preference, not a fix. Junction deviation already handles corner smoothing.</td></tr>
     <tr><td><code>DEFAULT_MAX_FEEDRATE</code> Z</td><td>5 mm/s</td><td>Conservative for a dual-Z leadscrew; fine. Don’t raise much.</td></tr>
     <tr><td><code>DEFAULT_MAX_ACCELERATION</code> E</td><td>5000</td><td>Plenty for direct drive. No change.</td></tr>
   </tbody>
@@ -371,11 +384,11 @@ genuinely want faster retracts. A light Sprite direct drive rarely needs more th
 <h2 id="misc">9. Smaller items &amp; quality-of-life <span class="pill lo">LOW</span></h2>
 <ul>
   <li><strong><code>ALLOW_LOW_EJERK</code></strong> — <code>DEFAULT_EJERK</code> is <code>5.0</code> while
-  <code>LIN_ADVANCE</code> is on. Marlin's sanity check historically blocks E-jerk&nbsp;&lt;&nbsp;10 with
-  Linear Advance unless <code>ALLOW_LOW_EJERK</code> is defined (it exists specifically for light
-  direct-drive extruders). With <code>CLASSIC_JERK</code> disabled you're on junction deviation so the
-  E-jerk path is largely inactive and this may not bite — but if a build ever errors on E-jerk, uncomment
-  <code>ALLOW_LOW_EJERK</code> rather than raising the jerk.</li>
+  <code>LIN_ADVANCE</code> is on. With <code>CLASSIC_JERK</code> disabled you're on junction deviation, so
+  Marlin's <code>DEFAULT_EJERK&nbsp;&gt;=&nbsp;10</code> check is <strong>compiled out entirely</strong>
+  (<code>SanityCheck.h</code> guards it with <code>NONE(HAS_JUNCTION_DEVIATION, ALLOW_LOW_EJERK)</code>) —
+  <code>DEFAULT_EJERK 5.0</code> is harmless and <code>ALLOW_LOW_EJERK</code> is <strong>not needed</strong>
+  here. It would only matter if you re-enabled classic jerk.</li>
   <li><strong><code>G26_MESH_VALIDATION</code></strong> — currently commented out. Enable it to print a
   single-layer pattern across the whole bed (<code>G26</code>) that visually confirms your mesh yields a
   flat first layer everywhere — the companion to the <code>M48</code> probe-repeatability check.</li>

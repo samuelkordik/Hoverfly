@@ -33,6 +33,12 @@ The **Commands** blocks below show the raw M-codes for reference (and for the pl
 you don't type them. `M48`, `M503`, and `M420 V` only report over USB serial, so they're skipped here:
 use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper move.
 
+**First-run order (fresh printer):** the steps are written 1→9, but Step 4 (Z-offset) needs an active
+mesh — a good first layer is mesh-compensated. So on a brand-new printer run **1 → 2 → 3 → 9 (build the
+first mesh) → 4 → 5–8**. PID and E-steps (Steps 2–3) are independent and can precede the mesh; the mesh
+itself (Step 9) builds fine before the Z-offset is dialed (it's relative). After that initial pass the
+numeric 1→9 order is fine for re-tuning.
+
 ---
 
 ## Step 1: bed-tramming
@@ -46,10 +52,12 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
   ```gcode
   M140 S60      ; heat bed
   G28           ; home
-  M211 S0       ; (optional) disable soft endstops while tramming corners
+  M211 S0       ; (reference only — disables soft endstops; re-enable with M211 S1 after)
   G1 Z0.2 F600  ; move nozzle near bed, then jog to each corner
   ```
-  Use the paper-drag test at each corner knob; adjust knobs until drag is equal everywhere.
+  Use the paper-drag test at each corner knob; adjust knobs until drag is equal everywhere. The supported
+  flow is **LCD jog only** — no macro sends `M211`, so soft endstops stay on. If you ever disable them
+  manually (`M211 S0`), re-enable with `M211 S1` afterward (they also reset on power-cycle).
 - **Observe:** Paper drag (slight resistance) feels identical at all four corners + center.
 - **Pass criteria:** Corner-to-corner nozzle height varies by < 0.1 mm (paper drag consistent).
 - **If fail:** Re-level corners; if one corner can't reach, check bed springs/silicone spacers and
@@ -81,7 +89,11 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
 - **Run:** E-steps — Print [`macros/ESTEPS_TEST.gcode`](macros/ESTEPS_TEST.gcode), measure, then set the
   new value via the **LCD Steps/mm** menu or [`macros/SET_ESTEPS.gcode`](macros/SET_ESTEPS.gcode) (edit
   first). Flow — use Orca's **Flow Rate** calibration (generates the print).
-- **Setup (E-steps check):** Heat to 205 °C. Mark 120 mm of filament above the extruder.
+- **Setup (E-steps check):** Heat to 205 °C. Mark 120 mm of filament above the extruder. Measure the
+  remaining filament **2–3 times (or re-run) and average** — a 1 mm read error is ~1% of E-steps. Mark
+  and measure against a fixed point on the **extruder body**, not the nozzle tip. The test extrudes
+  100 mm and does **not** retract, so expect a ~100 mm strand hanging from the nozzle — snip it off after
+  measuring. **Confirm on LCD:** Configuration → Advanced Settings → Steps/mm → E steps/mm.
 - **Commands (E-steps):**
   ```gcode
   M83            ; relative extrusion
@@ -101,10 +113,14 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
 ## Step 4: zoffset
 - **Goal:** Set CRTouch Z-offset for a perfect first layer; learn live babystepping.
 - **STL:** [`STL/firstlayer_patch_60mm.stl`](STL/firstlayer_patch_60mm.stl)
-- **Run:** **LCD live method** — start the patch print, double-click the encoder → **Babystep Z**, dial
-  the first layer by feel, then **Configuration → Store Settings**. To set a known number instead:
-  [`macros/SET_ZOFFSET.gcode`](macros/SET_ZOFFSET.gcode) (edit first).
-- **Setup:** Bed trammed (Step 1), mesh exists (or run Step 9 first time). Nozzle + bed at PLA temps.
+- **Run:** **Until you reflash with `BABYSTEP_ZPROBE_OFFSET` (firmware review §3), use
+  [`macros/SET_ZOFFSET.gcode`](macros/SET_ZOFFSET.gcode)** (edit `M851 Z<value>` + `M500`) — that
+  persists. The **LCD live-babystep method** (double-click the encoder → **Babystep Z**, dial by feel) is
+  great for finding the value, but with `BABYSTEP_ZPROBE_OFFSET` *off* the babystep is **not** folded into
+  the probe offset by Store Settings and is lost on reboot; once that flag is enabled, the live method
+  persists with **Configuration → Store Settings**. **Confirm on LCD:** Configuration → Probe Z Offset.
+- **Setup:** Bed trammed (Step 1) **and a mesh already built (Step 9)** — on a fresh printer do Step 9
+  before this step (see *First-run order* above). Nozzle + bed at PLA temps.
 - **Commands:**
   ```gcode
   G28
@@ -137,6 +153,10 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
   surfaces — usually ~200–210 °C for Elegoo PLA.
 - **If fail:** If every band strings, you're too hot and/or retraction needs Step 6; if layers
   delaminate at all bands, you're too cold or cooling too aggressively.
+- **Loop back if needed:** Step 2 autotuned PID at 205 °C. If your chosen tower temp differs from 205 by
+  more than ~10 °C, re-run [`macros/PID_HOTEND.gcode`](macros/PID_HOTEND.gcode) after editing it to
+  autotune at your final temp (`M303 E0 S<temp>`), then `M500` — PID constants are mildly
+  temperature-dependent, so tuning near your real print temp is best. A ±5–10 °C delta rarely matters.
 
 ## Step 6: retraction-pa
 - **Goal:** Eliminate stringing/oozing (retraction) and sharpen corners/seams (pressure/linear advance).
@@ -157,7 +177,9 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
   shrinks the retraction you need. Retraction starting point (direct drive, Sprite): **0.6–0.8 mm @
   25 mm/s**. ⚠️ The firmware E max feedrate is **25 mm/s**, so any higher retraction speed is silently
   clamped — tune **distance**, not speed (or raise `DEFAULT_MAX_FEEDRATE` E). Tune distance down until
-  stringing returns, then back up one notch.
+  stringing returns, then back up one notch. **Note:** Orca's *Enable pressure advance* checkbox injects
+  `M900 K` into the print G-code and overrides firmware K every print, so **untick it** when you're relying
+  on `SET_PA.gcode`/`M500` (Marlin K).
 - **Observe:** Retraction tower — strings between towers. PA test — corner bulge / gaps at line ends.
 - **Pass criteria:** No (or wispy, removable) strings; corners crisp with no bulge and no under-fill
   at the start of perimeters.
@@ -181,7 +203,7 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
   M500                 ; save only the values you settle on
   ```
 - **Observe:** Dimensional accuracy of the 20 mm cube (X/Y/Z within ±0.1–0.2 mm), echo/ghost lines
-  after corners, any layer shift.
+  after corners, any layer shift. **Confirm on LCD:** Configuration → Advanced Settings → Acceleration.
 - **Pass criteria:** Cube measures 20 ±0.2 mm each axis; no skipped steps; acceptable ringing.
 - **If fail:** Back off accel; if the cube is consistently off-dimension, recheck belt tension and
   steps/mm (X/Y 80, Z 400). Don't exceed what Step 8 shows is ring-free.
@@ -221,10 +243,10 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
 - **Run:** Print [`macros/BUILD_MESH.gcode`](macros/BUILD_MESH.gcode) from SD (heats, homes, probes,
   saves, enables). View the result on the **LCD mesh viewer** — `M420 V` and `M48` are serial-only, so
   skip `M48` probe-repeatability until the Klipper console.
-- **Setup:** Probe at **real print temp**. `PREHEAT_BEFORE_LEVELING` is on, but check
-  `LEVELING_BED_TEMP` — if it's left at a low preheat default (often ~50 °C) it's below your 60 °C PLA bed,
-  so the mesh misses warp present when hot. Set `#define LEVELING_BED_TEMP 60`, or run `G29` in start-gcode
-  after the bed soaks (`M190 S60` → `G4 S300`). Clean nozzle (no ooze blob on tip).
+- **Setup:** Probe at **real print temp**. `PREHEAT_BEFORE_LEVELING` is on, but `LEVELING_BED_TEMP` is
+  currently **50** (below your 60 °C PLA bed), so a reflash to `#define LEVELING_BED_TEMP 60` is
+  worthwhile; until then, run `G29` in start-gcode after the bed soaks (`M190 S60` → `G4 S300`). Clean
+  nozzle (no ooze blob on tip). **Confirm on LCD:** Configuration → (Bed) Leveling → Mesh viewer.
 - **Commands:** (what `BUILD_MESH.gcode` runs — for reference)
   ```gcode
   M140 S60 ; M104 S150   ; bed to print temp; warm nozzle (low ooze)
@@ -248,3 +270,9 @@ use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper 
 Each step that changes a stored value saves it with `M500` (the SD macros do this; or use the LCD →
 Store Settings). Recommended end state: PID saved, flow dialed in Orca, Z-offset saved, best temp +
 retraction + K saved, accel set, mesh stored and `M420 S1` enabled in your slicer's start G-code.
+If the temp tower moved your print temp more than ~10 °C from 205, re-run hotend PID at the new temp.
+
+> **Flash-emulated EEPROM caveat (SKR Mini E3 V2.0):** there's no real EEPROM — `M500` writes to a
+> reserved flash sector and is reliable day-to-day, but a **reflash can change the EEPROM layout and
+> reset all stored values to defaults**. After *any* firmware update, re-verify (and re-save) PID,
+> E-steps, Z-offset, K, accel, and rebuild the mesh — don't assume they survived.

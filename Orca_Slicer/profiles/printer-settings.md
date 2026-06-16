@@ -10,8 +10,8 @@ Custom **Marlin** printer. These mirror the firmware so Orca never commands more
 
 ## Motion ability (match firmware)
 - Max speed: X 500, Y 500, Z 5, E 25 (mm/s)
-- Max acceleration: X 500, Y 500, Z 100, E 5000 (mm/s²) — *raise X/Y to 1500–2000 after Calibration §7*
-- Max jerk: X 8, Y 8, Z 0.4, E 5 (advisory only — firmware uses Junction Deviation 0.08, classic jerk off)
+- Max acceleration: X 500, Y 500, Z 100, E 5000 (mm/s²) — raise X/Y to 1500–2000 after Calibration §7 (this is the Orca machine limit; you must *also* raise the firmware ceiling in Cal §7 — both, firmware first)
+- Max jerk: leave default (X/Y have no effect — Marlin ignores `M205` jerk under Junction Deviation 0.08, classic jerk off)
 
 ## Retraction (direct drive — Sprite Pro)
 - Length: **0.8 mm** (range 0.6–1.0). Speed: **25 mm/s**. Z-hop: 0.2 mm (optional).
@@ -24,7 +24,7 @@ Custom **Marlin** printer. These mirror the firmware so Orca never commands more
 M104 S[nozzle_temperature_initial_layer]
 M140 S[bed_temperature_initial_layer]
 G28
-M420 S1 Z10
+M420 S1 Z10                               ; requires a stored mesh — run BUILD_MESH.gcode (Cal §9) once first, or replace with G29
 M190 S[bed_temperature_initial_layer]
 M109 S[nozzle_temperature_initial_layer]
 G92 E0

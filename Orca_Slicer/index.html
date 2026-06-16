@@ -84,14 +84,15 @@ the board allows.</p>
     <tr><td>Max speed Z / E</td><td>5 / 25 mm/s</td><td><code>DEFAULT_MAX_FEEDRATE</code></td></tr>
     <tr><td>Max accel X / Y</td><td>500 / 500 mm/s²</td><td><code>DEFAULT_MAX_ACCELERATION</code> — see warning</td></tr>
     <tr><td>Max accel E</td><td>5000 mm/s²</td><td><code>DEFAULT_MAX_ACCELERATION</code></td></tr>
-    <tr><td>Jerk X / Y</td><td>8 / 8 (or leave low)</td><td>Classic jerk is OFF; firmware uses Junction Deviation 0.08, so Orca jerk is mostly advisory</td></tr>
+    <tr><td>Jerk X / Y</td><td>leave default — no effect</td><td>Classic jerk OFF; Marlin ignores <code>M205</code> X/Y jerk under Junction Deviation 0.08. Only relevant if <code>CLASSIC_JERK</code> is re-enabled.</td></tr>
   </tbody>
 </table>
-<div class="warn"><strong>Speed bottleneck:</strong> firmware max acceleration is a conservative
-<strong>500 mm/s²</strong>. No matter how high you set slicer speeds, the printer can't accelerate to
-them on short moves — so a "fast" profile is largely wasted until you raise firmware accel. Do
-<a href="../Calibration_Guide/index.html#speed">Calibration Step 7</a> first and lift firmware accel
-to ~1500–2000 mm/s² (then raise Orca's max accel to match). The Speed profile below assumes you've done this.</div>
+<div class="warn"><strong>Speed bottleneck:</strong> firmware max acceleration is a conservative <strong>500 mm/s²</strong>.
+Print accel is clamped by <strong>both</strong> the firmware ceiling <strong>and</strong> Orca's machine max-accel limit
+(also 500). Do <a href="../Calibration_Guide/index.html#speed">Calibration Step 7</a> first and raise
+firmware accel to ~1500–2000 mm/s², then raise Orca's max accel to match (two separate settings —
+firmware first via <code>SET_ACCEL.gcode</code>, then Orca's machine limit). Raising only one leaves you clamped.
+The Speed profile below assumes you've done both.</div>
 <div class="warn"><strong>Retraction speed is capped at 25 mm/s.</strong> The E max feedrate above is
 <strong>25 mm/s</strong>, so Orca silently clamps any retraction speed you set higher than that. Set
 retraction speed to <strong>25 mm/s</strong> (not the 35–45 you'll see quoted for Bowden setups) — or
@@ -102,11 +103,11 @@ retracts. A light Sprite direct drive rarely needs more.</div>
 <table>
   <thead><tr><th>Setting</th><th>Value</th><th>Notes</th></tr></thead>
   <tbody>
-    <tr><td>Nozzle temp</td><td>200–210 °C (first layer +5)</td><td>Confirm with temp tower (<a href="../Calibration_Guide/index.html#temp-tower">Cal §5</a>). Elegoo PLA is happy ~200–210.</td></tr>
+    <tr><td>Nozzle temp</td><td>200–215 °C (first layer +5)</td><td>Envelope for Elegoo PLA. Quality runs cooler (~200–205), Speed hotter (~210–215); pick the final value with the temp tower (<a href="../Calibration_Guide/index.html#temp-tower">Cal §5</a>).</td></tr>
     <tr><td>Bed temp</td><td>60 °C first layer, 55–60 °C rest</td><td>Bang-bang control; fine for PLA.</td></tr>
     <tr><td>Flow ratio</td><td>~0.98 (tune)</td><td>Set from flow test (<a href="../Calibration_Guide/index.html#esteps-flow">Cal §3</a>).</td></tr>
-    <tr><td>Pressure advance</td><td>off here if using Marlin K</td><td><strong>Pick one:</strong> Orca PA <em>or</em> firmware <code>M900 K</code> — not both. (<a href="../Calibration_Guide/index.html#retraction-pa">Cal §6</a>)</td></tr>
-    <tr><td>Max volumetric speed</td><td>~11 mm³/s</td><td>PLA ceiling; caps real throughput regardless of speed numbers.</td></tr>
+    <tr><td>Pressure advance</td><td>OFF (untick <strong>Enable pressure advance</strong>) if using Marlin K</td><td>Orca's PA checkbox <strong>injects <code>M900 K</code> into start G-code and overrides firmware K every print</strong> — so to rely on firmware K you must untick it. If instead you tune PA in Orca, that's fine (Orca's <code>M900</code> wins); keeping firmware <code>ADVANCE_K 0</code> avoids confusion. (<a href="../Calibration_Guide/index.html#retraction-pa">Cal §6</a>)</td></tr>
+    <tr><td>Max volumetric speed</td><td>~11 mm³/s (starting default)</td><td>Verify with Orca's Max Volumetric Speed calibration (§6); refine from the test, don't trust the default.</td></tr>
     <tr><td>Cooling fan</td><td>0% layer 1, ramp to 100% by layer 3</td><td>PLA loves cooling; keep layer 1 low for adhesion. Parts cooling is <strong>dual 5015 blowers</strong> (lots of airflow) — see the <a href="../docs/firmware-review/index.html#fans">firmware review fan notes</a> (kickstart/min-PWM).</td></tr>
   </tbody>
 </table>
@@ -119,7 +120,7 @@ fine features. Plain-text versions: <a href="profiles/SPEED.md">profiles/SPEED.m
   <thead><tr><th>Setting</th><th class="spd">⚡ Speed / fast</th><th class="qual">◆ Quality / detail</th></tr></thead>
   <tbody>
     <tr><td>Layer height</td><td>0.28 mm</td><td>0.12–0.16 mm</td></tr>
-    <tr><td>First layer height</td><td>0.28 mm</td><td>0.20 mm</td></tr>
+    <tr><td>First layer height</td><td>0.28 mm (drop to ~0.24 if adhesion marginal)</td><td>0.20 mm</td></tr>
     <tr><td>Line width</td><td>0.45–0.50 mm</td><td>0.40 mm</td></tr>
     <tr><td>Walls (perimeters)</td><td>2</td><td>3–4</td></tr>
     <tr><td>Top/bottom layers</td><td>3 / 3</td><td>5 / 4</td></tr>
@@ -203,9 +204,9 @@ G1 Z10 F600
 G90
 G1 X5 Y200 F3000   ; present the print
 M84                ; steppers off</pre>
-<div class="warn">The start G-code uses <code>M420 S1</code> to load the <em>stored</em> mesh instead of
-re-probing every print. Run <code>G29</code> + <code>M500</code> once (Calibration Step 9) so a good
-mesh exists. Add <code>G29</code> back to the start G-code if you'd rather probe every time.</div>
+<div class="warn"><strong>With no stored mesh, <code>M420 S1</code> prints flat with zero compensation</strong> (the 'No mesh' warning
+is serial-only) — a first-print crash/bad-layer risk. Build the mesh once via <a href="../Calibration_Guide/index.html#bed-mesh">Cal §9</a>
+(<code>BUILD_MESH.gcode</code>) <strong>before</strong> using this start block, or leave <code>G29</code> in until then.</div>
 
 <h2 id="calorder">6 · Orca's built-in calibration order</h2>
 <p>Orca has a <em>Calibration</em> menu — run these in order, then save the results into your
@@ -216,7 +217,7 @@ filament/process presets. Each maps to a step in the
   <li><strong>Flow rate</strong> → set flow ratio (Cal §3)</li>
   <li><strong>Pressure advance</strong> → set PA, or use Marlin <code>M900 K</code> instead (Cal §6)</li>
   <li><strong>Retraction test</strong> → set retraction distance/speed (Cal §6)</li>
-  <li><strong>Max volumetric speed</strong> → set the PLA throughput cap (Cal §7)</li>
+  <li><strong>Max volumetric speed</strong> → run Orca's Max Volumetric Speed test (this §6); there is no separate Calibration-guide MVS step</li>
 </ol>
 
 </main>

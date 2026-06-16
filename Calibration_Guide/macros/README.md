@@ -14,23 +14,28 @@ card**. Marlin runs them like any print.
 
 ## What each file does
 
-| File | Purpose | Edit first? |
-|------|---------|:-----------:|
-| `PID_HOTEND.gcode` | Hotend PID autotune @205 °C, saves result | no |
-| `PID_BED.gcode` | Bed PID autotune (only if you compiled `PIDTEMPBED`) | no |
-| `ESTEPS_TEST.gcode` | Extrude exactly 100 mm to verify E-steps | no |
-| `SET_ESTEPS.gcode` | Set & save extruder steps/mm | **yes** |
-| `SET_PA.gcode` | Set & save Linear Advance K | **yes** |
-| `SET_ACCEL.gcode` | Set & save acceleration limits | **yes** |
-| `SET_SHAPER.gcode` | Set & save Input Shaping freqs (only if IS compiled) | **yes** |
-| `SET_ZOFFSET.gcode` | Set & save probe Z-offset | **yes** |
-| `BUILD_MESH.gcode` | Heat, home, probe mesh, save, enable | no |
+| File | Purpose | Edit first? | Verify on LCD |
+|------|---------|:-----------:|---------------|
+| `PID_HOTEND.gcode` | Hotend PID autotune @205 °C, saves result | no | no numeric readout — confirm by a stable temp hold |
+| `PID_BED.gcode` | Bed PID autotune (only if you compiled `PIDTEMPBED`) | no | no numeric readout — confirm by a stable bed temp hold |
+| `ESTEPS_TEST.gcode` | Extrude exactly 100 mm to verify E-steps | no | — (measure the filament) |
+| `SET_ESTEPS.gcode` | Set & save extruder steps/mm | **yes** | Configuration → Advanced Settings → Steps/mm → E steps/mm |
+| `SET_PA.gcode` | Set & save Linear Advance K | **yes** | no stock LCD readout for K — verify by print result |
+| `SET_ACCEL.gcode` | Set & save acceleration limits | **yes** | Configuration → Advanced Settings → Acceleration |
+| `SET_SHAPER.gcode` | Set & save Input Shaping freqs (only if IS compiled) | **yes** | only if `SHAPING_MENU` compiled (it's off) — else verify by ringing-tower result |
+| `SET_ZOFFSET.gcode` | Set & save probe Z-offset | **yes** | Configuration → Probe Z Offset |
+| `SET_ZCURRENT.gcode` | Set & save Z TMC2209 run current (mA) | **yes** | no stock LCD readout — confirm by Z torque / no skips |
+| `BUILD_MESH.gcode` | Heat, home, probe mesh, save, enable | no | Configuration → (Bed) Leveling → Mesh viewer |
 
 ## Good to know
 
 - **`M303` (PID) pauses at the end** and waits for you to acknowledge on the LCD — that's normal.
 - **`M500` (save to EEPROM)** is built into each macro that changes a stored value. You can also save
   any time from the LCD: **Configuration → Store Settings**.
+- **`M500` here writes flash-emulated EEPROM** (the SKR Mini E3 V2.0 has no real EEPROM — it uses a
+  reserved flash sector). Reliable day-to-day, but **a reflash can change the EEPROM layout and reset
+  stored values to defaults** — re-verify (and re-save) PID, E-steps, Z-offset, K, accel, and rebuild
+  the mesh after any firmware update.
 - **Many things don't need a macro at all:**
   - **LCD menu** handles steps/mm, acceleration/feedrate/jerk, babystep Z + store, and the mesh viewer.
   - **Orca Slicer's Calibration menu** generates the temperature / flow / pressure-advance / retraction /

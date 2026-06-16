@@ -80,6 +80,14 @@
   <code>M48</code> to the planned Klipper console).
 </div>
 
+<div class="note">
+  <strong>First-run order (fresh printer):</strong> the steps are written 1→9, but Step 4 (Z-offset)
+  needs an active mesh — a good first layer is mesh-compensated. On a brand-new printer run
+  <strong>1 → 2 → 3 → 9 (build first mesh) → 4 → 5–8</strong>. PID and E-steps (Steps 2–3) are
+  independent and can precede the mesh; the mesh itself (Step 9) builds fine before Z-offset is dialed
+  (it's relative). After that initial pass the numeric 1→9 order is fine for re-tuning.
+</div>
+
 <h2 id="toc">The 9 steps</h2>
 <div class="toc card">
   <a href="#bed-tramming">1 · Bed tramming (mechanical level)</a>
@@ -102,7 +110,11 @@ mesh only has to correct small variation — not a skewed bed.</p>
 ~0.2 mm, and use the paper-drag test at each corner knob and the center.</p>
 <pre>M140 S60      ; heat bed
 G28           ; home
-G1 Z0.2 F600  ; nozzle near bed; jog to each corner and adjust knobs</pre>
+G1 Z0.2 F600  ; nozzle near bed; jog to each corner and adjust knobs
+; M211 S0    ; (reference only — disables soft endstops; re-enable with M211 S1 after)</pre>
+<div class="note">The supported flow here is <strong>LCD jog only</strong> — no macro sends <code>M211</code>,
+so soft endstops stay on. If you ever disable them manually (<code>M211 S0</code>), re-enable with
+<code>M211 S1</code> afterward (they also reset on power-cycle).</div>
 <div class="fig">
   <figure>
     <svg viewBox="0 0 220 120" width="100%" height="120" role="img" aria-label="level bed">
@@ -152,6 +164,11 @@ measure, then set via the LCD Steps/mm menu or <a href="macros/SET_ESTEPS.gcode"
 <h3>3a · Verify E-steps</h3>
 <pre>M83 ; G1 E100 F60     ; heat to 205C first; mark 120mm above extruder, extrude 100mm
 ; if actual ≠ 100mm:  M92 E&lt;423 * 100 / actual&gt;  then  M500</pre>
+<div class="note">Measure the remaining filament <strong>2–3 times (or re-run) and average</strong> — a 1 mm read
+error is ~1% of E-steps. Mark and measure against a fixed point on the <strong>extruder body</strong>, not
+the nozzle tip. The test extrudes 100 mm and does <strong>not</strong> retract, so expect a ~100 mm strand
+hanging from the nozzle — snip it off afterward. <strong>Confirm on LCD:</strong> Configuration → Advanced
+Settings → Steps/mm → E steps/mm.</div>
 <h3>3b · Flow / extrusion multiplier</h3>
 <p>Slice the flow cube with <strong>1 perimeter, 0 top/bottom, 0% infill</strong> (or Vase mode),
 0.2 mm layer. Measure the wall with calipers.</p>
@@ -179,13 +196,17 @@ Filament → Flow ratio), reprint.</div>
 <h2 id="zoffset" class="step">4 · Z-offset &amp; first layer</h2>
 <div class="meta"><span class="tag stl"><a href="STL/firstlayer_patch_60mm.stl">firstlayer_patch_60mm.stl</a></span></div>
 <p>Print the patch; adjust live with babystepping (double-click encoder → Babystep Z).</p>
-<p><strong>Run:</strong> LCD live method — start the patch print, double-click → <strong>Babystep Z</strong>,
-then <strong>Configuration → Store Settings</strong>. To set a known number instead:
-<a href="macros/SET_ZOFFSET.gcode">macros/SET_ZOFFSET.gcode</a>.</p>
+<p><strong>Run:</strong> <strong>Until you reflash with <code>BABYSTEP_ZPROBE_OFFSET</code> (firmware review §3), use
+<a href="macros/SET_ZOFFSET.gcode">macros/SET_ZOFFSET.gcode</a></strong> (edit <code>M851 Z&lt;value&gt;</code> + <code>M500</code>) — that persists. The <strong>LCD
+live-babystep method</strong> (double-click encoder → <strong>Babystep Z</strong>, dial by feel) is great for finding the value,
+but with <code>BABYSTEP_ZPROBE_OFFSET</code> <em>off</em> the babystep is <strong>not</strong> folded into the probe offset
+by Store Settings and is lost on reboot; once that flag is enabled, the live method persists with
+<strong>Configuration → Store Settings</strong>.</p>
 <pre>G28
 M851 Z-3.49     ; current probe Z-offset (info)
 ; during layer 1: babystep DOWN if too high, UP if scraping
 M500            ; save (persists Z only if BABYSTEP_ZPROBE_OFFSET is enabled — see firmware review §3)</pre>
+<div class="note"><strong>Confirm on LCD:</strong> Configuration → Probe Z Offset.</div>
 <div class="fig">
   <figure>
     <svg viewBox="0 0 220 90" width="100%" height="90" role="img">
@@ -224,6 +245,10 @@ no codes.</p>
 </div>
 <div class="pass"><strong>Pass:</strong> a band that snaps strong with clean overhangs/minimal strings.
 <strong>If fail:</strong> all bands string → too hot / fix retraction (Step 6); all delaminate → too cold or over-cooled.</div>
+<div class="note"><strong>Loop back if needed:</strong> Step 2 autotuned PID at 205 °C. If your chosen tower temp differs
+from 205 by more than ~10 °C, re-run <a href="macros/PID_HOTEND.gcode">macros/PID_HOTEND.gcode</a> after editing it to
+autotune at your final temp (<code>M303 E0 S&lt;temp&gt;</code>), then <code>M500</code> — PID constants are mildly temperature-dependent,
+so tuning near your real print temp is best. A ±5–10 °C delta rarely matters.</div>
 
 <!-- STEP 6 -->
 <h2 id="retraction-pa" class="step">6 · Retraction &amp; pressure / linear advance</h2>
@@ -262,6 +287,9 @@ M500
 </div>
 <div class="pass"><strong>Pass:</strong> no/wispy strings; corners crisp with no bulge and no gaps at perimeter starts.
 <strong>If fail:</strong> more retraction <em>distance</em> for strings (speed is capped at 25 mm/s; ≤~1.5 mm on direct drive); K up if corners bulge, down if they show gaps.</div>
+<div class="note"><strong>Note:</strong> Orca's <em>Enable pressure advance</em> checkbox injects <code>M900 K</code> into the print
+G-code and overrides firmware K every print, so <strong>untick it</strong> when you're relying on
+<code>SET_PA.gcode</code>/<code>M500</code> (Marlin K).</div>
 
 <!-- STEP 7 -->
 <h2 id="speed" class="step">7 · Speed &amp; acceleration</h2>
@@ -273,6 +301,7 @@ is a conservative 500; the light Sprite can usually go higher.</p>
 <pre>M201 X1000 Y1000   ; raise max accel to test
 M204 P1000         ; print accel
 M500               ; save only the values you settle on</pre>
+<div class="note"><strong>Confirm on LCD:</strong> Configuration → Advanced Settings → Acceleration.</div>
 <div class="pass"><strong>Pass:</strong> 20 mm cube measures 20 ±0.2 mm on each axis; no layer shift; acceptable ringing.
 <strong>If fail:</strong> back off accel; if dimensions are consistently off, check belt tension and steps/mm (X/Y 80, Z 400).</div>
 
@@ -317,9 +346,12 @@ acceleration (Step 7) to the ring-free value. First-class resonance compensation
 <p><strong>Run:</strong> Print <a href="macros/BUILD_MESH.gcode">macros/BUILD_MESH.gcode</a> from SD (heats,
 homes, probes, saves, enables). View the result on the <strong>LCD mesh viewer</strong> — <code>M420 V</code>
 and <code>M48</code> are serial-only, so skip <code>M48</code> probe-repeatability until the Klipper console.</p>
-<div class="warn"><strong>Probe at real print temp.</strong> Check <code>LEVELING_BED_TEMP</code> — if it's
-left at a low preheat default (often ~50 °C) it's below your 60 °C PLA bed, so the mesh misses warp present
-when hot. Set <code>#define LEVELING_BED_TEMP 60</code>, or run <code>G29</code> in start G-code after the bed soaks.</div>
+<div class="warn"><strong>Probe at real print temp.</strong> <code>PREHEAT_BEFORE_LEVELING</code> is on, but
+<code>LEVELING_BED_TEMP</code> is currently set to <strong>50</strong> (Configuration.h:1936) — <strong>below your ~60 °C PLA bed</strong>,
+so the mesh is probed ~10 °C cold. An aluminum bed warps differently when hot, so a mesh probed cold misses warp
+that's present while printing. Set <code>#define LEVELING_BED_TEMP 60</code> (reflash), or probe fresh in start
+G-code after the bed soaks: <code>M190 S60</code> → <code>G4 S300</code> (soak) → <code>G28</code> → <code>G29</code> → <code>M500</code>.</div>
+<div class="note"><strong>Confirm on LCD:</strong> Configuration → (Bed) Leveling → Mesh viewer.</div>
 <pre>M140 S60 ; M104 S150   ; bed to print temp; warm nozzle (low ooze)
 M190 S60 ; M109 S150    ; wait for both
 G28
@@ -334,6 +366,11 @@ M420 S1 Z10            ; enable leveling + fade height (put M420 S1 in your slic
   <strong>Save order when done:</strong> PID saved → flow set in Orca → Z-offset saved → best temp +
   retraction + K saved → accel set → mesh stored and <code>M420 S1</code> in slicer start G-code.
   Each macro saves with <code>M500</code>; or use the LCD → Store Settings after an LCD change.
+  <div class="warn" style="margin-top:12px"><strong>Flash-emulated EEPROM caveat (SKR Mini E3 V2.0):</strong>
+  there's no real EEPROM — <code>M500</code> writes to a reserved flash sector and is reliable day-to-day,
+  but a <strong>reflash can change the EEPROM layout and reset all stored values to defaults</strong>. After
+  <em>any</em> firmware update, re-verify (and re-save) PID, E-steps, Z-offset, K, accel, and rebuild
+  the mesh — don't assume they survived.</div>
 </div>
 
 </main>

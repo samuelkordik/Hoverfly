@@ -10,5 +10,5 @@
 M104 S205            ; heat hotend
 M109 S205            ; wait for temperature
 M83                  ; relative extrusion mode
-G1 E100 F60          ; extrude 100 mm slowly (1 mm/s)
+G1 E100 F60          ; extrude 100 mm slowly (1 mm/s) — no retract, expect ~100mm strand hanging from nozzle; snip after measuring
 M104 S0              ; hotend off
