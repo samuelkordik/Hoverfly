@@ -67,6 +67,19 @@
   </ul>
 </div>
 
+<div class="note">
+  <strong>No G-code terminal?</strong> Hoverfly has no Pi / OctoPrint / USB console, so each step's
+  <em>Run</em> line says how to do it without one:
+  <ul>
+    <li><strong>LCD menu</strong> — steps/mm, acceleration, babystep Z, Store Settings (<code>M500</code>), mesh viewer.</li>
+    <li><strong>Orca → Calibration</strong> — generates the temperature / flow / pressure-advance / retraction tests as prints.</li>
+    <li><strong>SD macros</strong> in <a href="macros/">macros/</a> — copy to the SD card once, then "Print" the named file (<code>SET_*</code> files are edit-first).</li>
+  </ul>
+  The <code>&lt;pre&gt;</code> blocks show the raw M-codes for reference — you don't type them.
+  <code>M48</code> / <code>M503</code> / <code>M420 V</code> are serial-only (use the LCD mesh viewer; defer
+  <code>M48</code> to the planned Klipper console).
+</div>
+
 <h2 id="toc">The 9 steps</h2>
 <div class="toc card">
   <a href="#bed-tramming">1 · Bed tramming (mechanical level)</a>
@@ -116,11 +129,15 @@ leadscrews sit at equal height (power off, hand-turn to match).</div>
 
 <!-- STEP 2 -->
 <h2 id="pid-hotend" class="step">2 · Hotend PID autotune</h2>
-<div class="meta"><span class="tag">No STL</span></div>
+<div class="meta"><span class="tag">No STL</span><span class="tag">SD macro</span></div>
 <p><strong>Goal:</strong> hold the hotend within ±0.5 °C. Tune with the part fan in its printing state.</p>
-<pre>M303 E0 S205 C8 U1   ; autotune hotend @205C, 8 cycles, apply
-M500                 ; save
-M503                 ; verify stored KP/KI/KD</pre>
+<p><strong>Run:</strong> Print <a href="macros/PID_HOTEND.gcode">macros/PID_HOTEND.gcode</a> from SD — it
+autotunes with the fan on, applies, and saves. <code>M303</code> pauses for an LCD acknowledge at the end.
+The stored constants are generic stock values, so a fresh autotune for the Sprite block is worthwhile.</p>
+<pre>M106 S255            ; part fan on (print-like cooling)
+M303 E0 S205 C8 U1   ; autotune hotend @205C, 8 cycles, apply
+M107                 ; fan off
+M500                 ; save</pre>
 <div class="pass"><strong>Pass:</strong> steady temperature, no sawtooth &gt; ±1 °C, no runaway trip.
 <strong>If fail:</strong> re-run with <code>C10</code>; check hotend fan and thermistor/heater seating.
 Existing values (21.73 / 1.54 / 76.55) are a fine fallback.</div>
@@ -129,6 +146,9 @@ Existing values (21.73 / 1.54 / 76.55) are a fine fallback.</div>
 <h2 id="esteps-flow" class="step">3 · E-steps &amp; flow</h2>
 <div class="meta"><span class="tag stl"><a href="STL/single_wall_flow_25mm.stl">single_wall_flow_25mm.stl</a></span></div>
 <p>E-steps are already <code>423</code> (calibrated for the Sprite). Verify, then dial slicer flow.</p>
+<p><strong>Run:</strong> E-steps — Print <a href="macros/ESTEPS_TEST.gcode">macros/ESTEPS_TEST.gcode</a>,
+measure, then set via the LCD Steps/mm menu or <a href="macros/SET_ESTEPS.gcode">macros/SET_ESTEPS.gcode</a>
+(edit first). Flow — use Orca's <strong>Flow Rate</strong> calibration.</p>
 <h3>3a · Verify E-steps</h3>
 <pre>M83 ; G1 E100 F60     ; heat to 205C first; mark 120mm above extruder, extrude 100mm
 ; if actual ≠ 100mm:  M92 E&lt;423 * 100 / actual&gt;  then  M500</pre>
@@ -159,6 +179,9 @@ Filament → Flow ratio), reprint.</div>
 <h2 id="zoffset" class="step">4 · Z-offset &amp; first layer</h2>
 <div class="meta"><span class="tag stl"><a href="STL/firstlayer_patch_60mm.stl">firstlayer_patch_60mm.stl</a></span></div>
 <p>Print the patch; adjust live with babystepping (double-click encoder → Babystep Z).</p>
+<p><strong>Run:</strong> LCD live method — start the patch print, double-click → <strong>Babystep Z</strong>,
+then <strong>Configuration → Store Settings</strong>. To set a known number instead:
+<a href="macros/SET_ZOFFSET.gcode">macros/SET_ZOFFSET.gcode</a>.</p>
 <pre>G28
 M851 Z-3.49     ; current probe Z-offset (info)
 ; during layer 1: babystep DOWN if too high, UP if scraping
@@ -187,6 +210,8 @@ M500            ; save (persists Z only if BABYSTEP_ZPROBE_OFFSET is enabled —
 <div class="meta"><span class="tag stl"><a href="STL/temp_tower_70mm.stl">temp_tower_70mm.stl</a></span><span class="tag">or a labeled tower — see <a href="STL/ATTRIBUTION.md">ATTRIBUTION.md</a></span></div>
 <p>Sweep ~220 → 190 °C (Orca's temperature-tower calibration inserts the per-band <code>M104</code>).
 Judge each band for adhesion, bridging, overhangs, and stringing.</p>
+<p><strong>Run:</strong> Orca → <strong>Calibration → Temperature tower</strong> generates the whole print —
+no codes.</p>
 <div class="fig">
   <figure>
     <svg viewBox="0 0 220 120" width="100%" height="120" role="img">
@@ -206,6 +231,9 @@ Judge each band for adhesion, bridging, overhangs, and stringing.</p>
 <p><strong>Tune pressure advance first, then retraction</strong> — good PA relieves nozzle pressure and
 shrinks the retraction you need. <strong>Direct drive = short retraction:</strong> start ~0.6–0.8 mm,
 tune <em>distance</em> down until stringing returns, then back up one notch.</p>
+<p><strong>Run:</strong> Orca → <strong>Calibration → Pressure Advance</strong> (Pattern, Direct Drive) and
+<strong>Retraction test</strong> both generate prints. Apply PA via Orca, or
+<a href="macros/SET_PA.gcode">macros/SET_PA.gcode</a>; set retraction in Orca's filament/printer settings.</p>
 <div class="warn"><strong>Retraction speed is capped at 25 mm/s</strong> — the firmware E max feedrate.
 Anything higher (the 35–45 mm/s you'll see quoted for Bowden) is silently clamped, so tune
 <strong>distance</strong>, not speed (or raise <code>DEFAULT_MAX_FEEDRATE</code> E first).</div>
@@ -240,6 +268,8 @@ M500
 <div class="meta"><span class="tag stl"><a href="STL/calibration_cube_20mm.stl">calibration_cube_20mm.stl</a></span></div>
 <p>Raise acceleration in steps and watch for ghosting and skipped steps. Firmware default print accel
 is a conservative 500; the light Sprite can usually go higher.</p>
+<p><strong>Run:</strong> set accel via the <strong>LCD Acceleration</strong> menu or
+<a href="macros/SET_ACCEL.gcode">macros/SET_ACCEL.gcode</a> (edit values first), then print the cube from SD to test.</p>
 <pre>M201 X1000 Y1000   ; raise max accel to test
 M204 P1000         ; print accel
 M500               ; save only the values you settle on</pre>
@@ -251,6 +281,9 @@ M500               ; save only the values you settle on</pre>
 <div class="meta"><span class="tag stl"><a href="STL/ringing_tower_60mm.stl">ringing_tower_60mm.stl</a></span></div>
 <p>Ghosting (echoes after sharp corners) comes from frame resonance. A ringing tower's oscillation
 spacing encodes the frequency.</p>
+<p><strong>Run:</strong> only if Input Shaping is compiled <em>and</em> fits. Sweep with the slicer
+after-layer macro (below), then apply with <a href="macros/SET_SHAPER.gcode">macros/SET_SHAPER.gcode</a>
+(edit the measured frequencies first).</p>
 <div class="fig">
   <figure>
     <svg viewBox="0 0 220 100" width="100%" height="100" role="img">
@@ -274,29 +307,33 @@ M593 X D0.15 ; M593 Y D0.15         ; damping (zeta) — refine in 0.05 steps
 M500</pre>
 <div class="warn">Then <strong>re-tune Linear Advance K (Step 6) after</strong> Input Shaping — the sweep
 runs with LA off, so K is finalized last. If the firmware won't build/flash with IS at all, instead lower
-acceleration (Step 7) to the ring-free value, or consider Klipper for first-class resonance compensation.</div>
+acceleration (Step 7) to the ring-free value. First-class resonance compensation is part of the planned
+<a href="../docs/firmware-review/index.html#klipper">Klipper migration</a>.</div>
 
 <!-- STEP 9 -->
 <h2 id="bed-mesh" class="step">9 · Bed mesh (ABL) &amp; validation</h2>
 <div class="meta"><span class="tag stl"><a href="STL/firstlayer_patch_60mm.stl">firstlayer_patch_60mm.stl</a></span></div>
 <p>Probe the bilinear mesh at print temperature, store it, and validate the first layer everywhere.</p>
+<p><strong>Run:</strong> Print <a href="macros/BUILD_MESH.gcode">macros/BUILD_MESH.gcode</a> from SD (heats,
+homes, probes, saves, enables). View the result on the <strong>LCD mesh viewer</strong> — <code>M420 V</code>
+and <code>M48</code> are serial-only, so skip <code>M48</code> probe-repeatability until the Klipper console.</p>
 <div class="warn"><strong>Probe at real print temp.</strong> Check <code>LEVELING_BED_TEMP</code> — if it's
 left at a low preheat default (often ~50 °C) it's below your 60 °C PLA bed, so the mesh misses warp present
 when hot. Set <code>#define LEVELING_BED_TEMP 60</code>, or run <code>G29</code> in start G-code after the bed soaks.</div>
-<pre>M190 S60 ; M109 S205   ; reach + hold print temps first
-M48 P10                ; probe repeatability — want σ &lt; 0.02 mm (&gt;0.05 = EMI/loose mount)
+<pre>M140 S60 ; M104 S150   ; bed to print temp; warm nozzle (low ooze)
+M190 S60 ; M109 S150    ; wait for both
 G28
 G29                    ; probe bilinear mesh
 M500                   ; store
 M420 S1 Z10            ; enable leveling + fade height (put M420 S1 in your slicer start G-code)
-G26 B60 H205           ; if G26_MESH_VALIDATION compiled — print a mesh-check pattern</pre>
-<div class="pass"><strong>Pass:</strong> <code>M48</code> σ &lt; 0.02 mm; mesh Z range &lt; ~0.3–0.4 mm (<code>M420 V</code> to view); first layer (and the <code>G26</code> pattern) equally good center and edges.
+; optional, separately: G26 B60 H205  (if G26_MESH_VALIDATION compiled) prints a mesh-check pattern</pre>
+<div class="pass"><strong>Pass:</strong> mesh Z range &lt; ~0.3–0.4 mm (view on the LCD mesh viewer); first layer equally good center and edges.
 <strong>If fail:</strong> redo Step 1 (tramming); consider 5×5 grid and a smaller <code>PROBING_MARGIN</code> (firmware review §5–6).</div>
 
 <div class="card">
   <strong>Save order when done:</strong> PID saved → flow set in Orca → Z-offset saved → best temp +
   retraction + K saved → accel set → mesh stored and <code>M420 S1</code> in slicer start G-code.
-  Run <code>M500</code> after each stored change.
+  Each macro saves with <code>M500</code>; or use the LCD → Store Settings after an LCD change.
 </div>
 
 </main>

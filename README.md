@@ -4,8 +4,9 @@
 The printer is a Creality Ender 3 Pro with the following modifications/additions:
 
 - SKR Mini E3 V2.0 mainboard
-- Dual Z-axis
+- Dual Z-axis — two steppers + lead screws, parallel-wired to the single Z driver
 - Sprite Extruder Pro direct-drive extruder + hotend
+- Dual 24 V 5015 blower parts cooling on a printed Taurus V5 duct
 - CRTouch probe
 - Marlin firmware
 
@@ -15,7 +16,7 @@ This repository is for me to keep track of configuration and firmware files.
 
 - **[Firmware review](docs/firmware-review/index.html)** ([markdown](docs/firmware-review/firmware-review.md)) — prioritized Marlin config recommendations.
 - **[Orca Slicer guide](Orca_Slicer/index.html)** ([markdown](Orca_Slicer/orca-slicer-guide.md)) — Elegoo PLA, with Speed and Quality profiles.
-- **[Calibration & tuning guide](Calibration_Guide/index.html)** — 9-step ordered tune-up with [STL test models](Calibration_Guide/STL/); also a structured [GUIDE.md](Calibration_Guide/GUIDE.md) and a [CLAUDE.md](Calibration_Guide/CLAUDE.md) for working through calibration interactively with Claude.
+- **[Calibration & tuning guide](Calibration_Guide/index.html)** — 9-step ordered tune-up with [STL test models](Calibration_Guide/STL/) and ready-to-run [SD macro files](Calibration_Guide/macros/) (no G-code terminal needed — everything runs via the LCD, Orca's calibration tests, or printing a macro from SD); also a structured [GUIDE.md](Calibration_Guide/GUIDE.md) and a [CLAUDE.md](Calibration_Guide/CLAUDE.md) for working through calibration interactively with Claude.
 
 ### How these were built
 
@@ -26,6 +27,33 @@ calibration test STLs. The raw structured findings behind every recommendation �
 were recovered from the agent transcripts after the run was interrupted partway — are preserved in
 [`docs/research/`](docs/research/README.md). The firmware review changes no firmware files; it's advisory,
 and motion/temperature numbers should be confirmed against the calibration guide before you commit them.
+
+## Hardware mods (current + planned)
+
+**Current**
+
+- **Dual Z** — two Z steppers + lead screws on the Creality kit's **parallel** Y-splitter, off the single
+  Z driver (the board has no spare). Firmware is correctly single-Z. Works as-is; if Z ever lacks torque,
+  raise the Z driver current, or switch to a series splitter cable.
+  See [firmware review §1](docs/firmware-review/index.html#dualz).
+- **Parts cooling** — the stock fan died; replaced with **dual 24 V 5015 blowers** on a printed
+  **Taurus V5 duct (PLA)**, spliced to the Sprite Extruder Pro's part-fan connector (driven by the
+  mainboard's FAN0). Firmware: add `FAN_KICKSTART_TIME` / `FAN_MIN_PWM` so they start at low PWM.
+  See [firmware review: fan wiring](docs/firmware-review/index.html#fans). (The PLA duct sits near the
+  hotend — reprint in PETG/ABS if it sags.)
+
+**Planned**
+
+- **12 V buck converter** off the PSU → barrel-jack receiver, to run a 12 V fan that circulates the
+  **heated bed's warmth for drying filament**.
+- **5 V buck converter** off the PSU → USB-A port, for a **removable** USB LED light bar (kept unwired so
+  it can come off for other uses).
+- **Klipper migration** — host on a wiped x86 ThinkPad, reflash the SKR Mini E3 V2.0; gains a web G-code
+  console (which removes the current no-terminal limitation) and first-class input shaping. Marlin-now is
+  the priority. See [firmware review: Future — Klipper](docs/firmware-review/index.html#klipper).
+
+> The buck converters are PSU-side (no firmware impact). Size them to the PSU's spare wattage, fuse each
+> output, and use appropriate wire gauge.
 
 ## Marlin Configuration Adjustments
 Using the "Creality/Ender-3 Pro/BigTreeTech SKR Mini E3 2.0" config example, with the following key changes:

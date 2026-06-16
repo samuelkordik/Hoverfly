@@ -4,8 +4,9 @@ Machine-parseable procedure for calibrating the Hoverfly (Ender 3 Pro · SKR Min
 Sprite Extruder Pro direct drive · CRTouch · TMC2209). Human-friendly version:
 [`index.html`](index.html). Interactive driver: [`CLAUDE.md`](CLAUDE.md).
 
-Each step has a stable `id` and the fields: **Goal**, **STL**, **Setup**, **Commands**, **Observe**,
-**Pass criteria**, **If fail**. Do the steps **in order** — later steps assume earlier ones passed.
+Each step has a stable `id` and the fields: **Goal**, **STL**, **Run** (how to do it with no G-code
+terminal), **Setup**, **Commands** (the raw codes, for reference), **Observe**, **Pass criteria**,
+**If fail**. Do the steps **in order** — later steps assume earlier ones passed.
 
 ## Firmware baseline (ground truth)
 
@@ -13,9 +14,24 @@ Each step has a stable `id` and the fields: **Goal**, **STL**, **Setup**, **Comm
 - Hotend PID `KP 21.73 / KI 1.54 / KD 76.55`. Bed = bang-bang (`PIDTEMPBED` off).
 - `LIN_ADVANCE` on, `ADVANCE_K 0.0` (untuned). Input shaping off. `BABYSTEP_ZPROBE_OFFSET` off.
 - ABL bilinear, 4×4 grid, `PROBING_MARGIN 50`, `NOZZLE_TO_PROBE_OFFSET {-30,-40,-3.49}`.
-- Bed 210×210 (firmware), Zmax 250. Save anything with `M500`.
+- Bed 210×210 (firmware), Zmax 250. Save with `M500` (built into the SD macros, or LCD → Store Settings).
 
 Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hotend, 50–60 °C bed).
+
+## Running these without a terminal
+
+Hoverfly has **no G-code console** (no Pi / OctoPrint / USB terminal). Each step's **Run** line says how
+to do it, one of three ways:
+
+- **LCD menu** — steps/mm, acceleration, babystep Z, Store Settings (`M500`), and the mesh viewer.
+- **Orca Slicer → Calibration menu** — generates the temperature / flow / pressure-advance / retraction
+  tests as ordinary prints. No codes.
+- **SD macro files** in [`macros/`](macros/) — for one-off commands (PID, mesh build, set-a-value). Copy
+  them to the SD card once, then **Print** the named file. `SET_*` files must be **edited first**.
+
+The **Commands** blocks below show the raw M-codes for reference (and for the planned Klipper console) —
+you don't type them. `M48`, `M503`, and `M420 V` only report over USB serial, so they're skipped here:
+use the **LCD mesh viewer**, and defer `M48` probe-repeatability to the Klipper move.
 
 ---
 
@@ -23,6 +39,8 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 - **Goal:** Mechanically level (tram) the bed so all four corners are within ~0.1 mm before relying
   on the CRTouch mesh. ABL compensates for small variation; it should not paper over a badly skewed bed.
 - **STL:** none (use the LCD / live moves).
+- **Run:** All on the **LCD**, no macro — heat the bed, Auto Home, then jog Z to ~0.2 mm and visit each
+  corner (or use the Bed Tramming menu if your build has it).
 - **Setup:** Heat bed to print temp (60 °C) so it sits at its working shape. Nozzle clean.
 - **Commands:**
   ```gcode
@@ -40,15 +58,17 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 ## Step 2: pid-hotend
 - **Goal:** Confirm/refresh hotend PID so temperature holds ±0.5 °C at print temp.
 - **STL:** none.
+- **Run:** Print [`macros/PID_HOTEND.gcode`](macros/PID_HOTEND.gcode) from SD (autotunes with the part
+  fan on, applies, and saves). `M303` pauses for an LCD acknowledge when it finishes — that's normal.
 - **Setup:** The stored `KP/KI/KD` (21.73/1.54/76.55) are generic stock Ender-3 values, **not** autotuned
-  for the Sprite Pro's heavier heater block — a fresh `M303` is worthwhile. Part-cooling fan behavior
-  matters — autotune at the fan state you print with. For PLA the part fan runs, so tune with a
-  representative fan speed.
-- **Commands:**
+  for the Sprite Pro's heavier heater block — a fresh autotune is worthwhile. The macro tunes with the
+  part fan on, matching real PLA printing.
+- **Commands:** (what the macro runs — for reference, you don't type these)
   ```gcode
+  M106 S255            ; part fan on (tune under print-like cooling)
   M303 E0 S205 C8 U1   ; autotune hotend at 205C, 8 cycles, apply result
+  M107                 ; fan off
   M500                 ; save
-  M503                 ; verify stored KP/KI/KD
   ```
 - **Observe:** During a hold at 205 °C the temperature is stable, not sawtoothing > ±1 °C.
 - **Pass criteria:** Steady-state within ±0.5–1 °C; no thermal-runaway trip.
@@ -58,6 +78,9 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 ## Step 3: esteps-flow
 - **Goal:** Verify extruder E-steps (already 423) and then dial slicer **flow / extrusion multiplier**.
 - **STL:** [`STL/single_wall_flow_25mm.stl`](STL/single_wall_flow_25mm.stl)
+- **Run:** E-steps — Print [`macros/ESTEPS_TEST.gcode`](macros/ESTEPS_TEST.gcode), measure, then set the
+  new value via the **LCD Steps/mm** menu or [`macros/SET_ESTEPS.gcode`](macros/SET_ESTEPS.gcode) (edit
+  first). Flow — use Orca's **Flow Rate** calibration (generates the print).
 - **Setup (E-steps check):** Heat to 205 °C. Mark 120 mm of filament above the extruder.
 - **Commands (E-steps):**
   ```gcode
@@ -78,6 +101,9 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 ## Step 4: zoffset
 - **Goal:** Set CRTouch Z-offset for a perfect first layer; learn live babystepping.
 - **STL:** [`STL/firstlayer_patch_60mm.stl`](STL/firstlayer_patch_60mm.stl)
+- **Run:** **LCD live method** — start the patch print, double-click the encoder → **Babystep Z**, dial
+  the first layer by feel, then **Configuration → Store Settings**. To set a known number instead:
+  [`macros/SET_ZOFFSET.gcode`](macros/SET_ZOFFSET.gcode) (edit first).
 - **Setup:** Bed trammed (Step 1), mesh exists (or run Step 9 first time). Nozzle + bed at PLA temps.
 - **Commands:**
   ```gcode
@@ -97,8 +123,9 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 ## Step 5: temp-tower
 - **Goal:** Find the best nozzle temperature for this Elegoo PLA spool (adhesion vs stringing/quality).
 - **STL:** [`STL/temp_tower_70mm.stl`](STL/temp_tower_70mm.stl) — 7 bands; sweep ~220 → 190 °C (one temp per band). For a fancier labeled tower see `STL/ATTRIBUTION.md`.
-- **Setup:** Use the model's per-band temperature G-code (or Orca's temperature-tower calibration,
-  which inserts `M104` per height). 0.2 mm layer, normal speed.
+- **Run:** Orca → **Calibration → Temperature tower** generates the print and inserts the per-band temps
+  for you — no codes. (Or slice the STL above with Orca's height-based temperature changes.)
+- **Setup:** 0.2 mm layer, normal speed. Orca's temperature-tower calibration inserts `M104` per height.
 - **Commands:** (Orca handles this; manual height-change marker shown for reference)
   ```gcode
   ; at each band height the slicer inserts e.g.:
@@ -114,6 +141,9 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 ## Step 6: retraction-pa
 - **Goal:** Eliminate stringing/oozing (retraction) and sharpen corners/seams (pressure/linear advance).
 - **STL:** [`STL/retraction_test_50mm.stl`](STL/retraction_test_50mm.stl) — two posts, travel across the 32 mm gap strings if retraction is poor; PA via Orca's calibration test.
+- **Run:** Orca → **Calibration → Pressure Advance** (Pattern, Direct Drive) and **Retraction test** —
+  both generate prints. Apply the chosen PA via Orca, or [`macros/SET_PA.gcode`](macros/SET_PA.gcode);
+  set retraction distance/speed in Orca's filament/printer settings.
 - **Setup:** Use the temp from Step 5. Direct drive = **short** retraction.
 - **Commands / values:**
   ```gcode
@@ -139,6 +169,8 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 - **Goal:** Find the highest acceleration the machine runs without ringing/skips; raise firmware
   ceilings if needed.
 - **STL:** [`STL/calibration_cube_20mm.stl`](STL/calibration_cube_20mm.stl) and/or [`STL/ringing_tower_60mm.stl`](STL/ringing_tower_60mm.stl).
+- **Run:** Set acceleration via the **LCD Acceleration** menu or [`macros/SET_ACCEL.gcode`](macros/SET_ACCEL.gcode)
+  (edit values first), then print the cube/tower from SD at each setting to test.
 - **Setup:** Print the cube at increasing accel; watch for ghosting after sharp features and for
   skipped steps (layer shift).
 - **Commands:**
@@ -157,6 +189,9 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 ## Step 8: shaping
 - **Goal:** Reduce ringing/ghosting — measure resonance and (optionally) enable Input Shaping.
 - **STL:** [`STL/ringing_tower_60mm.stl`](STL/ringing_tower_60mm.stl) — nubs every 10 mm imprint resonance echoes.
+- **Run:** Only if Input Shaping is compiled **and** fits. Sweep with the slicer "after layer change"
+  macro (below), then apply the result with [`macros/SET_SHAPER.gcode`](macros/SET_SHAPER.gcode) (edit
+  the measured frequencies first). If IS won't fit, this step is "lower accel" only (see *If fail*).
 - **Setup:** **First confirm IS even fits on the F103.** Enable `INPUT_SHAPING_X/Y` plus
   `SHAPING_MIN_FREQ 20.0` (bounds the SRAM step buffer), build, and check the linker does **not** report
   *"region RAM overflowed"* before you bother printing (firmware review §7). Then print the ringing tower
@@ -176,30 +211,33 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
   Then **re-tune Linear Advance K (Step 6) after IS** — the sweep runs with LA off, so K is finalized last.
 - **Observe:** Ghosting echoes after sharp corners; their period gives the resonant frequency.
 - **Pass criteria:** Visible reduction in ghosting; corners clean at your chosen accel.
-- **If fail:** If IS won't build/flash, instead **lower acceleration** (Step 7) to the ring-free value,
-  or consider Klipper for first-class resonance compensation.
+- **If fail:** If IS won't build/flash, instead **lower acceleration** (Step 7) to the ring-free value.
+  First-class resonance compensation is part of the planned Klipper migration (firmware review).
 
 ## Step 9: bed-mesh
 - **Goal:** Produce a reliable ABL mesh and validate first-layer consistency across the whole bed.
 - **STL:** [`STL/firstlayer_patch_60mm.stl`](STL/firstlayer_patch_60mm.stl) (print at several bed
   locations or scale up).
+- **Run:** Print [`macros/BUILD_MESH.gcode`](macros/BUILD_MESH.gcode) from SD (heats, homes, probes,
+  saves, enables). View the result on the **LCD mesh viewer** — `M420 V` and `M48` are serial-only, so
+  skip `M48` probe-repeatability until the Klipper console.
 - **Setup:** Probe at **real print temp**. `PREHEAT_BEFORE_LEVELING` is on, but check
   `LEVELING_BED_TEMP` — if it's left at a low preheat default (often ~50 °C) it's below your 60 °C PLA bed,
   so the mesh misses warp present when hot. Set `#define LEVELING_BED_TEMP 60`, or run `G29` in start-gcode
   after the bed soaks (`M190 S60` → `G4 S300`). Clean nozzle (no ooze blob on tip).
-- **Commands:**
+- **Commands:** (what `BUILD_MESH.gcode` runs — for reference)
   ```gcode
-  M190 S60 ; M109 S205   ; reach + hold print temps first
-  M48 P10                ; probe repeatability — want std dev < 0.02mm (>0.05 = EMI/loose mount)
+  M140 S60 ; M104 S150   ; bed to print temp; warm nozzle (low ooze)
+  M190 S60 ; M109 S150    ; wait for both
   G28
   G29                    ; probe the bilinear mesh
   M500                   ; store mesh
   M420 S1 Z10            ; enable leveling + fade height 10mm
-  G26 B60 H205           ; (if G26_MESH_VALIDATION compiled) print a mesh-check pattern
+  ; optional, separately: G26 B60 H205  (if G26_MESH_VALIDATION compiled) prints a mesh-check pattern
   ```
-- **Observe:** `M48` std dev < 0.02 mm. Mesh values in the LCD/`M420 V` — spread should be small (a few
-  tenths). First-layer patches (and the `G26` pattern) consistent in every region.
-- **Pass criteria:** `M48` σ < 0.02 mm; mesh Z range < ~0.3–0.4 mm; first layer equally good center and edges.
+- **Observe:** View the stored mesh on the **LCD mesh viewer** — spread should be small (a few tenths).
+  First-layer patches consistent in every region (optionally confirm with a `G26` pattern if compiled).
+- **Pass criteria:** Mesh Z range < ~0.3–0.4 mm; first layer equally good center and edges.
 - **If fail:** If the spread is large, redo Step 1 (tramming). Consider `GRID_MAX_POINTS 5×5` and
   lowering `PROBING_MARGIN` (firmware review §5–6) to mesh more of the bed.
 
@@ -207,6 +245,6 @@ Filament for all temp/flow numbers below: **Elegoo PLA** (≈190–220 °C hoten
 
 ## Done / save order
 
-After each step that changes a stored value, run `M500`. Recommended end state: PID saved, flow
-dialed in Orca, Z-offset saved, best temp + retraction + K saved, accel set, mesh stored and
-`M420 S1` enabled in your slicer's start G-code.
+Each step that changes a stored value saves it with `M500` (the SD macros do this; or use the LCD →
+Store Settings). Recommended end state: PID saved, flow dialed in Orca, Z-offset saved, best temp +
+retraction + K saved, accel set, mesh stored and `M420 S1` enabled in your slicer's start G-code.

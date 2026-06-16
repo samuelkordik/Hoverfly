@@ -11,7 +11,7 @@ Sprite Extruder Pro (direct drive), CRTouch, and TMC2209 drivers.
 
 | # | Area | Current | Recommended | Priority |
 |---|------|---------|-------------|----------|
-| 1 | Dual-Z vs README | `Z2_DRIVER_TYPE` commented (single driver) | Confirm motors series-wired to one driver; fix README wording | **HIGH** |
+| 1 | Dual-Z wiring | Two motors **parallel** on one Z driver (Creality cable); firmware single-Z (correct) | Works as-is; raise Z current if torque short; series = optional cable swap | LOW |
 | 2 | Linear Advance | `LIN_ADVANCE` on, `ADVANCE_K 0.0` | Calibrate K (~0.02–0.10 for Sprite direct drive) | **HIGH** |
 | 2b | S-curve × Lin. Advance | `S_CURVE_ACCELERATION` + `LIN_ADVANCE` both on | Disable `S_CURVE_ACCELERATION` (Marlin flags the pair incompatible) | **HIGH** |
 | 3 | Live Z-offset | `BABYSTEP_ZPROBE_OFFSET` off | Enable so babysteps adjust & save probe Z-offset | MED |
@@ -22,16 +22,44 @@ Sprite Extruder Pro (direct drive), CRTouch, and TMC2209 drivers.
 | 8 | Motion / JD | accel 500, JD 0.08 | Keep; tune via calibration | LOW |
 | 9 | QoL items | mostly off | Optional (see §9) | LOW |
 
-## 1. Dual-Z discrepancy (HIGH)
+## 1. Dual-Z wiring — parallel, one driver (LOW)
 
-README lists "Dual Z-axis" but `Z2_DRIVER_TYPE` is commented out — Marlin is set for a **single** Z
-driver. The **SKR Mini E3 V2.0 has only 4 onboard drivers (X, Y, Z, E0)** and no spare socket, so the
-normal "dual Z" on this board is **two motors wired to the one Z driver** (Y-splitter/series cable).
-In that case the single-driver firmware is **correct** — nothing to enable.
+The "Dual Z-axis" mod is two Z steppers + lead screws driven from the **single** Z output via the
+Creality kit's **parallel Y-splitter cable**. Firmware is correctly single-Z (`Z2_DRIVER_TYPE`
+commented): the **SKR Mini E3 V2.0 has only 4 drivers (X, Y, Z, E0)** and no spare socket, so a second
+*independent* Z driver isn't possible here. This works — the rest is optional.
 
-**Action:** confirm wiring. If series-wired (almost certainly the case), leave firmware as-is and
-reword the README to *"Dual Z motors (series-wired to the single Z driver)."* Trade-off: with one
-driver you **cannot** use `Z_STEPPER_AUTO_ALIGN` / `G34` — gantry squaring stays manual.
+- **Parallel current (watch this):** both motors share the one TMC2209, so they split its current. If Z
+  lacks torque or skips, raise the **Z `UART_CURRENT_MA`** (e.g. ~800–1000 mA) and check the driver
+  isn't hot (~1.4 A RMS ceiling). Z is slow, so this is rarely a problem.
+- **Series is cleaner but a hardware swap:** series gives both motors full, synced current within the
+  driver rating (Z's low speed makes the inductance penalty moot) — but the stock Creality cable is the
+  **parallel** one, so series needs a *different* splitter cable. Optional, not urgent.
+- **No auto gantry-align:** with one driver you **cannot** use `Z_STEPPER_AUTO_ALIGN` / `G34` — square
+  the gantry manually (stays true even under future Klipper). Reword the README mod list to
+  *"two Z motors, parallel-wired to the single driver."*
+
+## Fan wiring & cooling — dual 5015 blowers
+
+Three fans, two controllable 24 V PWM headers (FAN0/FAN1). The current wiring is already correct:
+
+| Fan | Connect to | Firmware | Behaviour |
+|-----|-----------|----------|-----------|
+| Hotend / heatbreak | **FAN1** | `E0_AUTO_FAN_PIN FAN1_PIN` | Auto-on when hot (`EXTRUDER_AUTO_FAN_TEMPERATURE 50`, speed 255) |
+| Parts cooling — **dual 5015 blowers** | **FAN0** → Sprite PCB part-fan connector | default `M106` PWM | Slicer-controlled; two 5015s ≈ 0.2 A, within FAN0 |
+| Mainboard / controller | **PWR** (always-on) | `USE_CONTROLLER_FAN` off | Hard-wired to power; correct as-is (not on a header) |
+
+**One firmware add for the blowers** — they often won't start at low PWM:
+
+```c
+// Configuration_adv.h
+#define FAN_KICKSTART_TIME 150   // full-speed pulse on start (ms)
+#define FAN_MIN_PWM 75           // ~30% floor so they don't stall
+```
+
+**PLA duct caveat:** the Taurus V5 duct is printed in PLA (softens ~60 °C) right by the hotend — watch for
+sag on long/hot prints, reprint in PETG/ABS/ASA if it deforms. Keep the layer-1 fan low for adhesion; the
+Orca profiles already ramp 0%→100% by layer 3.
 
 ## 2. Linear Advance K is 0.0 (HIGH)
 
@@ -100,8 +128,9 @@ of the nozzle, so it limits the usable margin. Raise back if the probe deploys o
 **Probe at print temperature.** `PREHEAT_BEFORE_LEVELING` is on, but check `LEVELING_BED_TEMP` — if it's
 left at a low preheat default (often ~50 °C) it's below your ~60 °C PLA bed, and aluminum warps differently
 when hot, so a cold mesh misses real warp. Set `#define LEVELING_BED_TEMP 60`, or probe fresh in start
-G-code after a soak (`M190 S60` → `G4 S300` → `G28` → `G29` → `M500`). Verify the probe with `M48 P10`
-(target σ < 0.02 mm). See Calibration Guide §9.
+G-code after a soak (`M190 S60` → `G4 S300` → `G28` → `G29` → `M500`). An `M48 P10` probe-repeatability
+check (target σ < 0.02 mm) is worthwhile too, but it only reports over serial — it waits for the Klipper
+console. See Calibration Guide §9.
 
 ## 7. Input Shaping on STM32F103 (MED)
 
@@ -159,10 +188,31 @@ Raise limits only with a test; firmware ceiling must be ≥ slicer requests.
 
 | Path | Use for | Steps |
 |------|---------|-------|
-| Live M-code | K-factor, PID, steps/mm, mesh, Z-offset, shaper freq | send M-code → test → `M500` (persist). `M501` reload, `M502` reset |
+| Value change (no terminal) | K-factor, PID, steps/mm, mesh, Z-offset, accel, shaper freq | No G-code console — use an LCD-menu action, an Orca calibration test, or an SD macro (`../../Calibration_Guide/macros/`); each saves with `M500`. `M48`/`M503`/`M420 V` are serial-only (skip; defer to Klipper) |
 | Recompile | feature toggles (`BABYSTEP_ZPROBE_OFFSET`, `PIDTEMPBED`, `INPUT_SHAPING_*`, `GRID_MAX_POINTS`, `PROBING_MARGIN`) | edit `Configuration*.h` → build (PlatformIO) → flash `firmware.bin` via SD → recalibrate → `M500` |
 
 Change **one** thing at a time, reflash, verify, `M500`. Keep firmware edits on a branch.
+
+## Future: Klipper migration (planned)
+
+Longer-term: host **Klipper on a wiped x86 ThinkPad** (a laptop host is fully supported — no Pi needed)
+and reflash the SKR Mini E3 V2.0 as the Klipper MCU (a reference board). **Marlin-now is the priority**;
+this is a separate project. Two big wins here:
+
+- **Solves the no-terminal problem** — Mainsail/Fluidd give a web G-code console, so the serial-only
+  blockers (`M48`, `M503`, mesh dumps) and PID/shaper tuning all become live.
+- **Input Shaping is native** and not RAM-constrained like Marlin IS on the F103 (§7).
+
+Carry-over vs. redo:
+
+| Setting | Marlin | Klipper | Carry over? |
+|---------|--------|---------|-------------|
+| Steps/mm | `M92` | `rotation_distance` | Recompute |
+| Pressure advance | `M900 K` | `pressure_advance` | Re-tune |
+| Hotend/bed PID | `M303` | `PID_CALIBRATE` | Re-tune |
+| Bed mesh | `G29` | `BED_MESH_CALIBRATE` | Re-run |
+| Input shaping | limited on F103 | native | Tune fresh (better) |
+| Dual Z | one driver | one driver (no spare) | Still parallel/series on one driver (§1) |
 
 ## Sources
 

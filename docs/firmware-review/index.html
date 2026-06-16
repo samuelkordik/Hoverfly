@@ -65,7 +65,8 @@
 <h2 id="toc">Contents</h2>
 <div class="toc card">
   <a href="#summary">Summary &amp; priority table</a>
-  <a href="#dualz">1. Dual-Z discrepancy (verify wiring)</a>
+  <a href="#dualz">1. Dual-Z wiring (parallel — confirmed)</a>
+  <a href="#fans">Fan wiring &amp; cooling (dual 5015 blowers)</a>
   <a href="#linadv">2. Linear Advance K is untuned (0.0)</a>
   <a href="#babystep">3. Enable BABYSTEP_ZPROBE_OFFSET</a>
   <a href="#bedpid">4. Bed temperature: bang-bang vs PID</a>
@@ -75,20 +76,21 @@
   <a href="#motion">8. Motion limits, junction deviation, S-curve</a>
   <a href="#misc">9. Smaller items &amp; QoL</a>
   <a href="#apply">How to apply &amp; save changes</a>
+  <a href="#klipper">Future: Klipper migration (planned)</a>
   <a href="#sources">Sources</a>
 </div>
 
 <h2 id="summary">Summary &amp; priority table</h2>
 <p>The configuration is already a solid, sane Ender-3-Pro-on-SKR-Mini-E3 setup: TMC2209 UART,
 junction deviation, S-curve, thermal protection, EEPROM, ABL bilinear, and E-steps already
-calibrated for the Sprite (<code>423</code>). The highest-value gaps are <strong>an untuned Linear
-Advance</strong> and <strong>a wiring/documentation question on "dual Z"</strong>. Everything else
-is incremental.</p>
+calibrated for the Sprite (<code>423</code>). The highest-value gap is <strong>an untuned Linear
+Advance</strong> (and the S-curve conflict it exposes). The "dual Z" wiring is <strong>confirmed fine</strong>
+(parallel, one driver — §1). Everything else is incremental.</p>
 
 <table>
   <thead><tr><th>#</th><th>Area</th><th>Current</th><th>Recommended</th><th>Priority</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>Dual-Z config vs README</td><td><code>Z2_DRIVER_TYPE</code> commented (single driver)</td><td>Confirm motors are series-wired to one driver; fix README wording</td><td><span class="pill hi">HIGH</span></td></tr>
+    <tr><td>1</td><td>Dual-Z wiring</td><td>Two motors <strong>parallel</strong> on one Z driver (Creality kit cable); firmware single-Z (correct)</td><td>Works as-is. Raise Z current if torque is short; series is an optional cable swap</td><td><span class="pill lo">LOW</span></td></tr>
     <tr><td>2</td><td>Linear Advance</td><td><code>LIN_ADVANCE</code> on, <code>ADVANCE_K 0.0</code></td><td>Calibrate K (≈0.02–0.10 for Sprite direct drive)</td><td><span class="pill hi">HIGH</span></td></tr>
     <tr><td>2b</td><td>S-curve × Linear Advance (<a href="#linadv">§2</a>)</td><td><code>S_CURVE_ACCELERATION</code> + <code>LIN_ADVANCE</code> both on</td><td>Disable <code>S_CURVE_ACCELERATION</code> — Marlin flags the pair incompatible</td><td><span class="pill hi">HIGH</span></td></tr>
     <tr><td>3</td><td>Live Z-offset</td><td><code>BABYSTEP_ZPROBE_OFFSET</code> off</td><td>Enable so babysteps adjust &amp; save probe Z-offset</td><td><span class="pill med">MED</span></td></tr>
@@ -101,23 +103,26 @@ is incremental.</p>
   </tbody>
 </table>
 
-<h2 id="dualz">1. Dual-Z discrepancy — verify how the second motor is wired <span class="pill hi">HIGH</span></h2>
-<p>The repo README lists <strong>“Dual Z-axis”</strong> as a modification, but the firmware has
-<code>Z2_DRIVER_TYPE</code> commented out — Marlin is configured for a <strong>single</strong> Z
-driver. These are not necessarily in conflict:</p>
-<ul>
-  <li>The <strong>SKR Mini E3 V2.0 has only four onboard drivers</strong> (X, Y, Z, E0) and no
-  spare driver socket. The standard “dual Z” on this board is <strong>two Z motors wired to the one
-  Z driver</strong> (a Y-splitter / series cable). In that case the current single-driver firmware
-  is <em>correct</em> — there is nothing to enable.</li>
-  <li>A <em>true</em> independent second Z driver would require moving E0 or adding an external
-  driver (e.g. via the UART/expansion header), which this build does not do.</li>
-</ul>
-<div class="warn"><strong>Action:</strong> confirm your wiring. If both Z motors run off the single Z
-port (almost certainly the case here), leave the firmware as-is and update the README to say
-<em>“Dual Z motors (series-wired to the single Z driver)”</em>. Note the trade-off: with one driver
-you <strong>cannot</strong> use <code>Z_STEPPER_AUTO_ALIGN</code> (independent gantry leveling, <code>G34</code>) —
-gantry squaring stays manual. If you ever want auto-align, you need a second driver.</p></div>
+<h2 id="dualz">1. Dual-Z wiring — two motors, parallel, on one driver <span class="pill lo">LOW</span></h2>
+<p>The "Dual Z-axis" mod is two Z steppers + lead screws driven from the <strong>single</strong> Z output
+via the Creality kit's <strong>parallel Y-splitter cable</strong>. The firmware is correctly set for one Z
+driver (<code>Z2_DRIVER_TYPE</code> stays commented): the <strong>SKR Mini E3 V2.0 has only four drivers</strong>
+(X, Y, Z, E0) and no spare socket, so a second <em>independent</em> Z driver isn't possible on this board.
+This works — the notes below are optional.</p>
+<div class="note"><strong>Parallel current — the one thing to watch.</strong> Both motors share the one
+TMC2209, so they split its current (each gets roughly half unless you raise it). If Z ever lacks torque or
+skips, raise the <strong>Z driver current</strong> (<code>UART_CURRENT_MA</code> in the TMC2209 section,
+e.g. toward 800–1000&nbsp;mA) and check the driver isn't running hot (TMC2209 ≈ 1.4&nbsp;A RMS ceiling).
+Z moves slowly, so this is rarely a problem in practice.</div>
+<div class="note"><strong>Series is cleaner, but it's a hardware swap.</strong> Wiring the two motors in
+<em>series</em> gives both full, synchronized current within the driver's rating (Z's low speed makes the
+doubled inductance irrelevant) — the conventional choice for two motors on one driver. But the stock
+Creality cable is the <strong>parallel</strong> one, so series needs a <em>different</em> splitter cable.
+Optional, not urgent.</div>
+<div class="warn"><strong>No auto gantry-align.</strong> With one Z driver you can't use
+<code>Z_STEPPER_AUTO_ALIGN</code> / <code>G34</code> — square the gantry manually (power off, hand-turn both
+lead screws to equal height). This stays true even under the planned <a href="#klipper">Klipper</a> move
+(still one Z driver). Also update the README mod list to say "two Z motors, parallel-wired to the single driver."</div>
 <figure>
   <svg viewBox="0 0 600 220" role="img" aria-label="SKR Mini E3 V2.0 has four drivers; both Z motors share the single Z driver">
     <rect x="24" y="46" width="250" height="120" rx="8" fill="#141821" stroke="#5aa2ff"/>
@@ -131,15 +136,37 @@ gantry squaring stays manual. If you ever want auto-align, you need a second dri
     <text x="149" y="150" fill="#9aa3b2" font-size="11" text-anchor="middle">no 5th driver socket</text>
     <path d="M174 110 L174 192 L440 192 L440 120" fill="none" stroke="#4cc38a" stroke-width="2"/>
     <path d="M174 192 L530 192 L530 120" fill="none" stroke="#4cc38a" stroke-width="2"/>
-    <text x="330" y="184" fill="#9aa3b2" font-size="11" text-anchor="middle">series / Y-splitter cable</text>
+    <text x="330" y="184" fill="#9aa3b2" font-size="11" text-anchor="middle">parallel Y-splitter cable</text>
     <g text-anchor="middle">
       <circle cx="440" cy="96" r="24" fill="#1b1f28" stroke="#4cc38a"/><text x="440" y="100" fill="#e7e9ee" font-size="12">Z-L</text>
       <circle cx="530" cy="96" r="24" fill="#1b1f28" stroke="#4cc38a"/><text x="530" y="100" fill="#e7e9ee" font-size="12">Z-R</text>
     </g>
     <text x="485" y="56" fill="#9aa3b2" font-size="12" text-anchor="middle">two Z motors</text>
   </svg>
-  <figcaption>This build's "dual&nbsp;Z": both motors run off the <strong>single</strong> Z driver (series-wired), so the single-Z firmware is correct. A true independent second Z would need a 5th driver — hence the <code>Z_STEPPER_AUTO_ALIGN</code> trade-off above.</figcaption>
+  <figcaption>This build's "dual&nbsp;Z": both motors run in <strong>parallel</strong> off the single Z driver (Creality kit cable), so the single-Z firmware is correct. They share the driver's current — raise Z current if torque is short. A true independent second Z would need a 5th driver (not on this board).</figcaption>
 </figure>
+
+<h2 id="fans">Fan wiring &amp; cooling — dual 5015 blowers</h2>
+<p>Three fans, two controllable headers on the SKR Mini E3 V2.0 (<strong>FAN0</strong> and
+<strong>FAN1</strong>, both 24&nbsp;V PWM). Your current wiring is already the right scheme:</p>
+<table>
+  <thead><tr><th>Fan</th><th>Connect to</th><th>Firmware</th><th>Behaviour</th></tr></thead>
+  <tbody>
+    <tr><td>Hotend / heatbreak</td><td><strong>FAN1</strong></td><td><code>E0_AUTO_FAN_PIN FAN1_PIN</code></td><td>Auto-on when the hotend is hot (<code>EXTRUDER_AUTO_FAN_TEMPERATURE 50</code>, speed 255). Cools the heatbreak only when needed.</td></tr>
+    <tr><td>Parts cooling — <strong>dual 5015 blowers</strong></td><td><strong>FAN0</strong> → Sprite PCB part-fan connector (two blowers spliced)</td><td>default <code>M106</code> PWM</td><td>Slicer-controlled. Two 5015s ≈ 0.2&nbsp;A total — well within the FAN0 header.</td></tr>
+    <tr><td>Mainboard / controller</td><td><strong>PWR</strong> (always-on)</td><td><code>USE_CONTROLLER_FAN</code> off</td><td>Hard-wired to power; runs continuously. Correct as-is — it isn't on a controllable header, so leave the define off.</td></tr>
+  </tbody>
+</table>
+<div class="warn"><strong>One firmware add for the blowers.</strong> 5015 blowers often won't start spinning
+at low slicer PWM. Give them a kickstart pulse and a floor:
+<pre><code>// Configuration_adv.h
+#define FAN_KICKSTART_TIME 150   // full-speed pulse on start (ms)
+#define FAN_MIN_PWM 75           // ~30% floor so they don't stall</code></pre>
+Then the slicer's 0%→100% ramp won't leave them stalled at low speeds.</div>
+<div class="note"><strong>PLA duct caveat.</strong> The Taurus V5 duct is printed in <strong>PLA</strong>,
+which softens near ~60&nbsp;°C — right next to the hotend it can sag over long/hot prints. Keep an eye on it
+and reprint in PETG/ABS/ASA if it deforms. Cooling itself is great — dual blowers move a lot of air, so keep
+the layer-1 fan low for bed adhesion (the Orca profiles already ramp 0%→100% by layer&nbsp;3).</div>
 
 <h2 id="linadv">2. Linear Advance K is enabled but set to 0.0 <span class="pill hi">HIGH</span></h2>
 <p><code>LIN_ADVANCE</code> is compiled in, but <code>ADVANCE_K 0.0</code> means it does nothing.
@@ -265,8 +292,9 @@ on (good), but check <code>LEVELING_BED_TEMP</code> — if it's left at a low pr
 ~50&nbsp;°C) it's <strong>below your ~60&nbsp;°C PLA bed</strong>. An aluminum bed warps differently when
 hot, so a mesh probed cold misses warp that's present while printing. Set it to your usual bed temp, or
 probe fresh in the slicer start G-code after the bed soaks: <code>#define LEVELING_BED_TEMP 60</code> — or <code>M190 S60</code> → <code>G4 S300</code> (soak) →
-<code>G28</code> → <code>G29</code> → <code>M500</code>. Pair with an <code>M48 P10</code> probe-repeatability
-check (target σ&nbsp;&lt;&nbsp;0.02&nbsp;mm). See <a href="../../Calibration_Guide/index.html#bed-mesh">Calibration Guide §9</a>.</div>
+<code>G28</code> → <code>G29</code> → <code>M500</code>. (An <code>M48 P10</code> probe-repeatability check —
+target σ&nbsp;&lt;&nbsp;0.02&nbsp;mm — is worthwhile too, but it only reports over serial, so it waits for the
+<a href="#klipper">Klipper console</a>.) See <a href="../../Calibration_Guide/index.html#bed-mesh">Calibration Guide §9</a>.</div>
 
 <h2 id="shaping">7. Input Shaping on an STM32F103 <span class="pill med">MED</span></h2>
 <p>Input Shaping (<code>INPUT_SHAPING_X/Y</code>) cancels ringing/ghosting and lets you run higher
@@ -278,8 +306,8 @@ this MCU the build can overflow or the step rate can be limited.</p>
   the shaper frequencies from a ringing-tower measurement (<a href="../../Calibration_Guide/index.html#shaping">Calibration Guide §8</a>),
   tune live with <code>M593 X F&lt;freq&gt;</code> / <code>M593 Y F&lt;freq&gt;</code>, then <code>M500</code>.</li>
   <li><strong>If it won’t fit / build errors on flash overflow:</strong> drop it. The pragmatic
-  alternative on this board is to keep acceleration modest, or move to <strong>Klipper</strong> (where
-  input shaping and resonance measurement are first-class) if ghosting really bothers you.</li>
+  alternative on this board is to keep acceleration modest, or move to <strong><a href="#klipper">Klipper</a></strong>
+  (the planned migration — input shaping and resonance measurement are first-class there).</li>
 </ul>
 <pre><code>// Configuration_adv.h
 #define INPUT_SHAPING_X
@@ -371,8 +399,8 @@ genuinely want faster retracts. A light Sprite direct drive rarely needs more th
 <table>
   <thead><tr><th>Path</th><th>Use for</th><th>Steps</th></tr></thead>
   <tbody>
-    <tr><td><strong>Live M-code</strong></td><td>K-factor, PID, steps/mm, mesh, Z-offset, shaper freq</td>
-      <td>Send the <code>M</code>-code (e.g. <code>M900 K…</code>), test, then <code>M500</code> to persist to EEPROM. <code>M501</code> reloads, <code>M502</code> resets to firmware defaults.</td></tr>
+    <tr><td><strong>Value change (no terminal)</strong></td><td>K-factor, PID, steps/mm, mesh, Z-offset, accel, shaper freq</td>
+      <td>There's no G-code console here — deliver via an <strong>LCD-menu</strong> action, an <strong>Orca calibration test</strong>, or an SD macro from <a href="../../Calibration_Guide/macros/">Calibration_Guide/macros/</a> (each saves with <code>M500</code>; or LCD → Store Settings). <code>M48</code>/<code>M503</code>/<code>M420 V</code> are serial-only — skip them (defer to the Klipper console below).</td></tr>
     <tr><td><strong>Recompile</strong></td><td>Feature toggles: <code>BABYSTEP_ZPROBE_OFFSET</code>, <code>PIDTEMPBED</code>, <code>INPUT_SHAPING_*</code>, <code>GRID_MAX_POINTS</code>, <code>PROBING_MARGIN</code></td>
       <td>Edit <code>Firmware/Marlin/Configuration*.h</code>, build (PlatformIO), flash <code>firmware.bin</code> via SD card, then re-run calibration and <code>M500</code>.</td></tr>
   </tbody>
@@ -380,6 +408,31 @@ genuinely want faster retracts. A light Sprite direct drive rarely needs more th
 <div class="note">Workflow tip: make <strong>one</strong> firmware change at a time, reflash, verify,
 and <code>M500</code> before moving on — so if something regresses you know which change did it. Keep
 the firmware edits on a branch (as you did for the Sprite e-steps calibration).</div>
+
+<h2 id="klipper">Future: Klipper migration (planned)</h2>
+<p>Longer-term plan: host <strong>Klipper on a wiped x86 ThinkPad</strong> (no Raspberry Pi needed — a
+laptop host is fully supported) and reflash the SKR Mini E3 V2.0 as the Klipper MCU; it's a Klipper
+reference board. <strong>Marlin-now is the priority</strong> — this is a separate project that may pair with
+other upgrades. Two things make it attractive here:</p>
+<ul>
+  <li><strong>It solves the no-terminal problem.</strong> Mainsail/Fluidd give a <strong>web G-code
+  console</strong> — you can type commands and see output, so the serial-only blockers (<code>M48</code>
+  probe repeatability, <code>M503</code>, mesh dumps) and PID/shaper tuning all become live.</li>
+  <li><strong>Input Shaping is first-class</strong> and not constrained by the STM32F103's RAM the way
+  Marlin IS is (§7).</li>
+</ul>
+<p>What carries over vs. needs redoing under Klipper:</p>
+<table>
+  <thead><tr><th>Setting</th><th>Marlin</th><th>Klipper</th><th>Carry over?</th></tr></thead>
+  <tbody>
+    <tr><td>Steps/mm</td><td><code>M92</code></td><td><code>rotation_distance</code></td><td>Recompute (different unit)</td></tr>
+    <tr><td>Pressure advance</td><td><code>M900 K</code></td><td><code>pressure_advance</code></td><td>Re-tune (similar range)</td></tr>
+    <tr><td>Hotend/bed PID</td><td><code>M303</code></td><td><code>PID_CALIBRATE</code></td><td>Re-tune</td></tr>
+    <tr><td>Bed mesh</td><td><code>G29</code></td><td><code>BED_MESH_CALIBRATE</code></td><td>Re-run</td></tr>
+    <tr><td>Input shaping</td><td>limited on F103</td><td>native</td><td>Tune fresh (better)</td></tr>
+    <tr><td>Dual Z</td><td>one driver</td><td>one driver (no spare)</td><td>Still parallel/series on one driver — see §1</td></tr>
+  </tbody>
+</table>
 
 <h2 id="sources">Sources</h2>
 <p>This review is grounded in your current <code>Configuration.h</code> / <code>Configuration_adv.h</code>
