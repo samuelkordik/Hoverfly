@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoverfly — Orca Slicer Guide (Elegoo PLA)</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--ink:#e7e9ee;--mut:#9aa3b2;--line:#262b36;
+        --acc:#5aa2ff;--spd:#ff9f43;--qual:#5aa2ff;--ok:#4cc38a;--warn:#ffb020;--code:#0b0d11;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px}
+  header{padding:48px 0 26px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#12151c,#0f1115)}
+  h1{font-size:30px;margin:0 0 6px} h2{font-size:23px;margin:44px 0 10px;padding-top:12px;border-top:1px solid var(--line)}
+  h3{font-size:18px;margin:22px 0 8px} .sub{color:var(--mut);margin:0}
+  a{color:var(--acc)} code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:.88em;color:#cfe3ff;font-family:ui-monospace,Menlo,Consolas,monospace}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:13px 15px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#1b1f28} tr:nth-child(even) td{background:#141821}
+  .spd{color:var(--spd);font-weight:700}.qual{color:var(--qual);font-weight:700}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:18px 0}
+  .note{border-left:4px solid var(--acc);background:#121a26;padding:10px 15px;border-radius:0 8px 8px 0;margin:12px 0}
+  .warn{border-left:4px solid var(--warn);background:#221c10;padding:10px 15px;border-radius:0 8px 8px 0;margin:12px 0}
+  .toc{columns:2;gap:24px;font-size:14.5px}.toc a{display:block;padding:3px 0;color:#bcd0ee;text-decoration:none}
+  footer{border-top:1px solid var(--line);margin-top:48px;padding:24px 0;color:var(--mut);font-size:13px;text-align:center}
+  @media (max-width:680px){.toc{columns:1}}
+  .fig{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0}
+  .fig figure{flex:1 1 240px;margin:0}
+  figure{margin:16px 0}
+  figure svg{width:100%;height:auto;background:var(--code);border:1px solid var(--line);border-radius:10px;display:block}
+  figcaption{color:var(--mut);font-size:13px;margin-top:6px;line-height:1.45}
+  .lbl-ok{color:var(--ok);font-weight:700}.lbl-bad{color:#ff5d5d;font-weight:700}
+  @media (max-width:560px){.fig{flex-direction:column}}
+  @media print{body{background:#fff;color:#000}.card,.note,.warn{border-color:#bbb}pre,code{background:#f4f4f4;color:#000}th{background:#eee}a{color:#0645ad}
+    figure svg{background:#fff;border-color:#bbb}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Hoverfly — Orca Slicer Guide</h1>
+  <p class="sub">Setting up Orca Slicer for the Ender 3 Pro · SKR Mini E3 V2.0 · Sprite Extruder Pro
+  (direct drive) · CRTouch, printing <strong>Elegoo PLA</strong> — with a Speed and a Quality profile.</p>
+</div></header>
+
+<main class="wrap">
+
+<div class="note">These values are starting points tied to your firmware. <strong>Numbers get confirmed
+in the <a href="../Calibration_Guide/index.html">Calibration Guide</a></strong> (flow, pressure
+advance, temperature, retraction). Tune there, then lock them into the profiles below.</div>
+
+<h2 id="toc">Contents</h2>
+<div class="toc card">
+  <a href="#printer">1 · Add the printer in Orca</a>
+  <a href="#limits">2 · Machine limits (match firmware)</a>
+  <a href="#filament">3 · Elegoo PLA filament settings</a>
+  <a href="#profiles">4 · Speed vs Quality profiles</a>
+  <a href="#startgcode">5 · Start / end G-code</a>
+  <a href="#calorder">6 · Orca calibration order</a>
+</div>
+
+<h2 id="printer">1 · Add the printer in Orca</h2>
+<p>Add a <strong>custom Marlin printer</strong> (or start from the Creality Ender-3 preset and edit):</p>
+<table>
+  <thead><tr><th>Setting</th><th>Value</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Bed shape</td><td>210 × 210 mm</td><td>Match firmware <code>X/Y_BED_SIZE 210</code>. The physical plate is 220×220, but firmware travel is capped at 210 — staying at 210 avoids commanding clipped moves. Bump both together later if you want the full plate.</td></tr>
+    <tr><td>Max print height</td><td>250 mm</td><td>Firmware <code>Z_MAX_POS 250</code>.</td></tr>
+    <tr><td>Nozzle diameter</td><td>0.4 mm</td><td>Standard.</td></tr>
+    <tr><td>Origin</td><td>front-left (0,0)</td><td>Cartesian Ender 3.</td></tr>
+    <tr><td>G-code flavor</td><td>Marlin</td><td>—</td></tr>
+    <tr><td>Extruder / direct drive</td><td>Direct drive</td><td>Sprite Pro — drives retraction/PA choices.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="limits">2 · Machine limits (match firmware)</h2>
+<p>In <em>Printer settings → Motion ability</em>, mirror the firmware so Orca never asks for more than
+the board allows.</p>
+<table>
+  <thead><tr><th>Limit</th><th>Value</th><th>Firmware source</th></tr></thead>
+  <tbody>
+    <tr><td>Max speed X / Y</td><td>500 / 500 mm/s</td><td><code>DEFAULT_MAX_FEEDRATE</code></td></tr>
+    <tr><td>Max speed Z / E</td><td>5 / 25 mm/s</td><td><code>DEFAULT_MAX_FEEDRATE</code></td></tr>
+    <tr><td>Max accel X / Y</td><td>500 / 500 mm/s²</td><td><code>DEFAULT_MAX_ACCELERATION</code> — see warning</td></tr>
+    <tr><td>Max accel E</td><td>5000 mm/s²</td><td><code>DEFAULT_MAX_ACCELERATION</code></td></tr>
+    <tr><td>Jerk X / Y</td><td>8 / 8 (or leave low)</td><td>Classic jerk is OFF; firmware uses Junction Deviation 0.08, so Orca jerk is mostly advisory</td></tr>
+  </tbody>
+</table>
+<div class="warn"><strong>Speed bottleneck:</strong> firmware max acceleration is a conservative
+<strong>500 mm/s²</strong>. No matter how high you set slicer speeds, the printer can't accelerate to
+them on short moves — so a "fast" profile is largely wasted until you raise firmware accel. Do
+<a href="../Calibration_Guide/index.html#speed">Calibration Step 7</a> first and lift firmware accel
+to ~1500–2000 mm/s² (then raise Orca's max accel to match). The Speed profile below assumes you've done this.</div>
+<div class="warn"><strong>Retraction speed is capped at 25 mm/s.</strong> The E max feedrate above is
+<strong>25 mm/s</strong>, so Orca silently clamps any retraction speed you set higher than that. Set
+retraction speed to <strong>25 mm/s</strong> (not the 35–45 you'll see quoted for Bowden setups) — or
+raise the firmware E feedrate (<code>M203 E50</code> + <code>M500</code>) if you really want faster
+retracts. A light Sprite direct drive rarely needs more.</div>
+
+<h2 id="filament">3 · Elegoo PLA filament settings</h2>
+<table>
+  <thead><tr><th>Setting</th><th>Value</th><th>Notes</th></tr></thead>
+  <tbody>
+    <tr><td>Nozzle temp</td><td>200–210 °C (first layer +5)</td><td>Confirm with temp tower (<a href="../Calibration_Guide/index.html#temp-tower">Cal §5</a>). Elegoo PLA is happy ~200–210.</td></tr>
+    <tr><td>Bed temp</td><td>60 °C first layer, 55–60 °C rest</td><td>Bang-bang control; fine for PLA.</td></tr>
+    <tr><td>Flow ratio</td><td>~0.98 (tune)</td><td>Set from flow test (<a href="../Calibration_Guide/index.html#esteps-flow">Cal §3</a>).</td></tr>
+    <tr><td>Pressure advance</td><td>off here if using Marlin K</td><td><strong>Pick one:</strong> Orca PA <em>or</em> firmware <code>M900 K</code> — not both. (<a href="../Calibration_Guide/index.html#retraction-pa">Cal §6</a>)</td></tr>
+    <tr><td>Max volumetric speed</td><td>~11 mm³/s</td><td>PLA ceiling; caps real throughput regardless of speed numbers.</td></tr>
+    <tr><td>Cooling fan</td><td>0% layer 1, ramp to 100% by layer 3</td><td>PLA loves cooling; keep layer 1 low for adhesion.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="profiles">4 · Speed vs Quality profiles</h2>
+<p>Two process presets. Speed trades detail for throughput; Quality trades time for surface finish and
+fine features. Plain-text versions: <a href="profiles/SPEED.md">profiles/SPEED.md</a>,
+<a href="profiles/QUALITY.md">profiles/QUALITY.md</a>, <a href="profiles/printer-settings.md">profiles/printer-settings.md</a>.</p>
+<table>
+  <thead><tr><th>Setting</th><th class="spd">⚡ Speed / fast</th><th class="qual">◆ Quality / detail</th></tr></thead>
+  <tbody>
+    <tr><td>Layer height</td><td>0.28 mm</td><td>0.12–0.16 mm</td></tr>
+    <tr><td>First layer height</td><td>0.28 mm</td><td>0.20 mm</td></tr>
+    <tr><td>Line width</td><td>0.45–0.50 mm</td><td>0.40 mm</td></tr>
+    <tr><td>Walls (perimeters)</td><td>2</td><td>3–4</td></tr>
+    <tr><td>Top/bottom layers</td><td>3 / 3</td><td>5 / 4</td></tr>
+    <tr><td>Infill</td><td>10–15% grid</td><td>15–20% gyroid</td></tr>
+    <tr><td>Outer wall speed</td><td>120–150 mm/s</td><td>30–40 mm/s</td></tr>
+    <tr><td>Inner wall speed</td><td>200–250 mm/s</td><td>60 mm/s</td></tr>
+    <tr><td>Infill speed</td><td>250–300 mm/s</td><td>80 mm/s</td></tr>
+    <tr><td>Travel speed</td><td>250 mm/s</td><td>180 mm/s</td></tr>
+    <tr><td>Print accel (needs firmware ≥)</td><td>1500–2000 mm/s²</td><td>500 mm/s² (default fine)</td></tr>
+    <tr><td>Nozzle temp</td><td>210–215 °C (hotter for speed)</td><td>200–205 °C</td></tr>
+    <tr><td>Retraction (direct drive)</td><td>0.8 mm @ 25 mm/s*</td><td>0.6–0.8 mm @ 25 mm/s*</td></tr>
+    <tr><td>* retraction speed</td><td colspan="2">Capped at the firmware E feedrate (25 mm/s) — see the note in §2. Tune <em>distance</em>, not speed.</td></tr>
+    <tr><td>Slow down for overhangs</td><td>off</td><td>on</td></tr>
+    <tr><td>Seam</td><td>Nearest/Aligned</td><td>Aligned (or Back)</td></tr>
+    <tr><td>Typical use</td><td>drafts, jigs, big simple parts</td><td>minis, mechanical fits, display parts</td></tr>
+  </tbody>
+</table>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 130" role="img" aria-label="Thick layers print fast but show stair-stepping">
+      <g fill="#ff9f43">
+        <rect x="40" y="92" width="120" height="14"/><rect x="40" y="78" width="100" height="14"/>
+        <rect x="40" y="64" width="80" height="14"/><rect x="40" y="50" width="60" height="14"/>
+        <rect x="40" y="36" width="40" height="14"/>
+      </g>
+      <text x="110" y="122" fill="#9aa3b2" font-size="11" text-anchor="middle">0.28 mm — 5 thick layers</text>
+    </svg>
+    <figcaption><span class="spd">⚡ Speed:</span> thick layers = far fewer passes = fast, but visible stair-steps on curves and shallow slopes.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 130" role="img" aria-label="Thin layers print slower but smoother">
+      <g fill="#5aa2ff">
+        <rect x="40" y="99" width="120" height="7"/><rect x="40" y="92" width="108" height="7"/><rect x="40" y="85" width="96" height="7"/><rect x="40" y="78" width="84" height="7"/><rect x="40" y="71" width="72" height="7"/><rect x="40" y="64" width="60" height="7"/><rect x="40" y="57" width="48" height="7"/><rect x="40" y="50" width="36" height="7"/><rect x="40" y="43" width="24" height="7"/><rect x="40" y="36" width="12" height="7"/>
+      </g>
+      <text x="110" y="122" fill="#9aa3b2" font-size="11" text-anchor="middle">0.12 mm — 10 thin layers</text>
+    </svg>
+    <figcaption><span class="qual">◆ Quality:</span> thinner layers = smoother curves and finer detail, at roughly 2× the print time.</figcaption>
+  </figure>
+</div>
+<div class="note">The Sprite is light and PLA cools fast, so the Speed numbers are realistic
+<em>once firmware accel is raised</em>. Keep outer-wall speed lower than inner even on Speed — the
+outer surface is what you see.</div>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 110" role="img" aria-label="Two posts with a clean gap, good retraction">
+      <rect x="42" y="34" width="16" height="50" rx="2" fill="#3a4456"/><rect x="162" y="34" width="16" height="50" rx="2" fill="#3a4456"/>
+      <text x="110" y="100" fill="#9aa3b2" font-size="11" text-anchor="middle">clean gap — good retraction</text>
+    </svg>
+    <figcaption><span class="lbl-ok">Good:</span> ~0.6–0.8&nbsp;mm @ 25&nbsp;mm/s (the firmware E ceiling) on the Sprite direct drive — no webbing across travel moves.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 110" role="img" aria-label="Two posts with strings across the gap">
+      <rect x="42" y="34" width="16" height="50" rx="2" fill="#3a4456"/><rect x="162" y="34" width="16" height="50" rx="2" fill="#3a4456"/>
+      <g stroke="#ff5d5d" stroke-width="1.3"><line x1="58" y1="44" x2="162" y2="48"/><line x1="58" y1="56" x2="162" y2="54"/><line x1="58" y1="66" x2="162" y2="62"/></g>
+      <text x="110" y="100" fill="#9aa3b2" font-size="11" text-anchor="middle">stringing — tune retraction / temp</text>
+    </svg>
+    <figcaption><span class="lbl-bad">Bad:</span> wisps across the gap → a little more retraction distance/speed, or drop a temp band (<a href="../Calibration_Guide/index.html#retraction-pa">Cal&nbsp;§6</a>).</figcaption>
+  </figure>
+</div>
+
+<h2 id="startgcode">5 · Start / end G-code</h2>
+<p>Start G-code that homes, meshes-load, heats, and (optionally) does an auto bed level:</p>
+<pre>; ---- START ----
+M104 S[nozzle_temperature_initial_layer] ; start warming hotend
+M140 S[bed_temperature_initial_layer]    ; bed
+G28                                       ; home all
+M420 S1 Z10                               ; load saved mesh + fade height (skip G29 to save time)
+M190 S[bed_temperature_initial_layer]     ; wait for bed
+M109 S[nozzle_temperature_initial_layer]  ; wait for hotend
+G92 E0
+G1 Z2.0 F3000
+G1 X2 Y20 Z0.3 F5000                       ; prime line
+G1 X2 Y200 E15 F1500
+G92 E0</pre>
+<pre>; ---- END ----
+M104 S0
+M140 S0
+G91
+G1 E-2 F2700
+G1 Z10 F600
+G90
+G1 X5 Y200 F3000   ; present the print
+M84                ; steppers off</pre>
+<div class="warn">The start G-code uses <code>M420 S1</code> to load the <em>stored</em> mesh instead of
+re-probing every print. Run <code>G29</code> + <code>M500</code> once (Calibration Step 9) so a good
+mesh exists. Add <code>G29</code> back to the start G-code if you'd rather probe every time.</div>
+
+<h2 id="calorder">6 · Orca's built-in calibration order</h2>
+<p>Orca has a <em>Calibration</em> menu — run these in order, then save the results into your
+filament/process presets. Each maps to a step in the
+<a href="../Calibration_Guide/index.html">Calibration Guide</a>:</p>
+<ol>
+  <li><strong>Temperature tower</strong> → set nozzle temp (Cal §5)</li>
+  <li><strong>Flow rate</strong> → set flow ratio (Cal §3)</li>
+  <li><strong>Pressure advance</strong> → set PA, or use Marlin <code>M900 K</code> instead (Cal §6)</li>
+  <li><strong>Retraction test</strong> → set retraction distance/speed (Cal §6)</li>
+  <li><strong>Max volumetric speed</strong> → set the PLA throughput cap (Cal §7)</li>
+</ol>
+
+</main>
+<footer>
+  Hoverfly Orca guide · Elegoo PLA ·
+  <a href="orca-slicer-guide.md">markdown</a> ·
+  <a href="../Calibration_Guide/index.html">calibration guide</a> ·
+  <a href="../docs/firmware-review/index.html">firmware review</a> ·
+  <a href="../README.md">README</a> ·
+  <a href="https://github.com/samuelkordik/Hoverfly">GitHub</a>
+</footer>
+</body>
+</html>

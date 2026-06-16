@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoverfly — Calibration & Tuning Guide</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--ink:#e7e9ee;--mut:#9aa3b2;--line:#262b36;
+        --acc:#5aa2ff;--ok:#4cc38a;--bad:#ff5d5d;--warn:#ffb020;--code:#0b0d11;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:980px;margin:0 auto;padding:0 24px}
+  header{padding:48px 0 26px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#12151c,#0f1115)}
+  h1{font-size:30px;margin:0 0 6px} h2{font-size:23px;margin:46px 0 10px;padding-top:12px;border-top:1px solid var(--line)}
+  h3{font-size:18px;margin:22px 0 8px} .sub{color:var(--mut);margin:0}
+  a{color:var(--acc)} code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:.88em;color:#cfe3ff;font-family:ui-monospace,Menlo,Consolas,monospace}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:13px 15px;overflow:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13.5px}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top}
+  th{background:#1b1f28} tr:nth-child(even) td{background:#141821}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:18px 0}
+  .step{scroll-margin-top:16px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}
+  .tag{font-size:12px;padding:2px 9px;border-radius:999px;background:#1b2330;color:#bcd0ee;border:1px solid var(--line)}
+  .tag.stl{background:#12231a;color:#9fe7c0}
+  .note{border-left:4px solid var(--acc);background:#121a26;padding:10px 15px;border-radius:0 8px 8px 0;margin:12px 0}
+  .warn{border-left:4px solid var(--warn);background:#221c10;padding:10px 15px;border-radius:0 8px 8px 0;margin:12px 0}
+  .pass{border-left:4px solid var(--ok);background:#0f1f17;padding:10px 15px;border-radius:0 8px 8px 0;margin:12px 0}
+  .toc{columns:2;gap:24px;font-size:14.5px} .toc a{display:block;padding:3px 0;color:#bcd0ee;text-decoration:none}
+  .fig{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0}
+  figure{margin:0;flex:1 1 260px;background:#10131a;border:1px solid var(--line);border-radius:10px;padding:12px}
+  figcaption{font-size:13px;color:var(--mut);margin-top:8px}
+  .lbl-ok{color:var(--ok);font-weight:700} .lbl-bad{color:var(--bad);font-weight:700}
+  footer{border-top:1px solid var(--line);margin-top:48px;padding:24px 0;color:var(--mut);font-size:13px;text-align:center}
+  @media (max-width:680px){.toc{columns:1}}
+  @media print{body{background:#fff;color:#000}.card,.note,.warn,.pass,figure{border-color:#bbb}pre,code{background:#f4f4f4;color:#000}th{background:#eee}a{color:#0645ad}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Hoverfly — Calibration &amp; Tuning Guide</h1>
+  <p class="sub">A repeatable, ordered tune-up for the Ender 3 Pro · SKR Mini E3 V2.0 ·
+  Sprite Extruder Pro (direct drive) · CRTouch · Elegoo PLA</p>
+</div></header>
+
+<main class="wrap">
+
+<div class="note">
+  <strong>How to use this guide.</strong> Work the steps <em>in order</em> — each assumes the previous
+  passed. Print the linked STL, compare your result to the reference diagrams and pass criteria, then
+  adjust and re-test. Want a guided session? Open this folder with Claude — see
+  <a href="CLAUDE.md">CLAUDE.md</a> — and it'll walk you through step by step. The same procedure in
+  plain-text/machine-readable form is <a href="GUIDE.md">GUIDE.md</a>.
+  <br><br><em>Note:</em> the diagrams below are schematic SVGs (the automated photo download was
+  interrupted by a usage limit). Real reference photos can be added later.
+</div>
+
+<div class="card">
+  <strong>Before you start</strong>
+  <ul>
+    <li>Filament: <strong>Elegoo PLA</strong> — hotend ≈190–220 °C, bed ≈50–60 °C.</li>
+    <li>Save any stored value with <code>M500</code>. <code>M501</code> reloads, <code>M502</code> resets to firmware defaults.</li>
+    <li>Change <strong>one thing at a time</strong>, then re-test.</li>
+    <li>Pair this with the <a href="../docs/firmware-review/index.html">firmware review</a> and
+        <a href="../Orca_Slicer/index.html">Orca guide</a>.</li>
+  </ul>
+</div>
+
+<h2 id="toc">The 9 steps</h2>
+<div class="toc card">
+  <a href="#bed-tramming">1 · Bed tramming (mechanical level)</a>
+  <a href="#pid-hotend">2 · Hotend PID autotune</a>
+  <a href="#esteps-flow">3 · E-steps &amp; flow</a>
+  <a href="#zoffset">4 · Z-offset &amp; first layer</a>
+  <a href="#temp-tower">5 · Temperature tower</a>
+  <a href="#retraction-pa">6 · Retraction &amp; pressure/linear advance</a>
+  <a href="#speed">7 · Speed &amp; acceleration</a>
+  <a href="#shaping">8 · Ringing &amp; input shaping</a>
+  <a href="#bed-mesh">9 · Bed mesh (ABL) &amp; validation</a>
+</div>
+
+<!-- STEP 1 -->
+<h2 id="bed-tramming" class="step">1 · Bed tramming (mechanical level)</h2>
+<div class="meta"><span class="tag">No STL</span><span class="tag">Live moves</span></div>
+<p><strong>Goal:</strong> get all four corners within ~0.1 mm <em>mechanically</em>, so the CRTouch
+mesh only has to correct small variation — not a skewed bed.</p>
+<p><strong>Do it:</strong> heat the bed to 60 °C (it changes shape when hot), home, drop the nozzle to
+~0.2 mm, and use the paper-drag test at each corner knob and the center.</p>
+<pre>M140 S60      ; heat bed
+G28           ; home
+G1 Z0.2 F600  ; nozzle near bed; jog to each corner and adjust knobs</pre>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 120" width="100%" height="120" role="img" aria-label="level bed">
+      <rect x="10" y="70" width="200" height="10" fill="#2a3140"/>
+      <line x1="10" y1="70" x2="210" y2="70" stroke="#4cc38a" stroke-width="3"/>
+      <rect x="100" y="30" width="20" height="34" fill="#3a4456"/><polygon points="110,64 104,72 116,72" fill="#cfe3ff"/>
+      <text x="110" y="100" fill="#9aa3b2" font-size="11" text-anchor="middle">even gap all around</text>
+    </svg>
+    <figcaption><span class="lbl-ok">Good:</span> equal paper drag at every corner + center.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 120" width="100%" height="120" role="img" aria-label="skewed bed">
+      <rect x="10" y="74" width="200" height="10" fill="#2a3140" transform="rotate(-5 110 79)"/>
+      <line x1="10" y1="86" x2="210" y2="68" stroke="#ff5d5d" stroke-width="3"/>
+      <rect x="100" y="30" width="20" height="34" fill="#3a4456"/><polygon points="110,64 104,72 116,72" fill="#cfe3ff"/>
+      <text x="110" y="104" fill="#9aa3b2" font-size="11" text-anchor="middle">one side high / low</text>
+    </svg>
+    <figcaption><span class="lbl-bad">Bad:</span> drag tight on one corner, loose on the opposite — re-level.</figcaption>
+  </figure>
+</div>
+<div class="pass"><strong>Pass:</strong> corner-to-corner nozzle height varies &lt; 0.1 mm.
+<strong>If fail:</strong> adjust knobs; if a corner can't reach, check springs and that both Z
+leadscrews sit at equal height (power off, hand-turn to match).</div>
+
+<!-- STEP 2 -->
+<h2 id="pid-hotend" class="step">2 · Hotend PID autotune</h2>
+<div class="meta"><span class="tag">No STL</span></div>
+<p><strong>Goal:</strong> hold the hotend within ±0.5 °C. Tune with the part fan in its printing state.</p>
+<pre>M303 E0 S205 C8 U1   ; autotune hotend @205C, 8 cycles, apply
+M500                 ; save
+M503                 ; verify stored KP/KI/KD</pre>
+<div class="pass"><strong>Pass:</strong> steady temperature, no sawtooth &gt; ±1 °C, no runaway trip.
+<strong>If fail:</strong> re-run with <code>C10</code>; check hotend fan and thermistor/heater seating.
+Existing values (21.73 / 1.54 / 76.55) are a fine fallback.</div>
+
+<!-- STEP 3 -->
+<h2 id="esteps-flow" class="step">3 · E-steps &amp; flow</h2>
+<div class="meta"><span class="tag stl"><a href="STL/single_wall_flow_25mm.stl">single_wall_flow_25mm.stl</a></span></div>
+<p>E-steps are already <code>423</code> (calibrated for the Sprite). Verify, then dial slicer flow.</p>
+<h3>3a · Verify E-steps</h3>
+<pre>M83 ; G1 E100 F60     ; heat to 205C first; mark 120mm above extruder, extrude 100mm
+; if actual ≠ 100mm:  M92 E&lt;423 * 100 / actual&gt;  then  M500</pre>
+<h3>3b · Flow / extrusion multiplier</h3>
+<p>Slice the flow cube with <strong>1 perimeter, 0 top/bottom, 0% infill</strong> (or Vase mode),
+0.2 mm layer. Measure the wall with calipers.</p>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 100" width="100%" height="100" role="img">
+      <rect x="40" y="30" width="140" height="40" fill="none" stroke="#4cc38a" stroke-width="6"/>
+      <text x="110" y="90" fill="#9aa3b2" font-size="11" text-anchor="middle">uniform 0.42–0.45 mm wall</text>
+    </svg>
+    <figcaption><span class="lbl-ok">Good:</span> wall = target line width, consistent, no gaps.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 100" width="100%" height="100" role="img">
+      <rect x="40" y="30" width="140" height="40" fill="none" stroke="#ff5d5d" stroke-width="3" stroke-dasharray="6 4"/>
+      <text x="110" y="90" fill="#9aa3b2" font-size="11" text-anchor="middle">thin / gappy = under-extrusion</text>
+    </svg>
+    <figcaption><span class="lbl-bad">Bad:</span> thin or split wall → raise flow; blobby/over-thick → lower flow.</figcaption>
+  </figure>
+</div>
+<div class="pass"><strong>Pass:</strong> wall within ±0.02–0.03 mm of target.
+<strong>If fail:</strong> <code>new_flow = old_flow × target_wall / measured_wall</code> (Orca →
+Filament → Flow ratio), reprint.</div>
+
+<!-- STEP 4 -->
+<h2 id="zoffset" class="step">4 · Z-offset &amp; first layer</h2>
+<div class="meta"><span class="tag stl"><a href="STL/firstlayer_patch_60mm.stl">firstlayer_patch_60mm.stl</a></span></div>
+<p>Print the patch; adjust live with babystepping (double-click encoder → Babystep Z).</p>
+<pre>G28
+M851 Z-3.49     ; current probe Z-offset (info)
+; during layer 1: babystep DOWN if too high, UP if scraping
+M500            ; save (persists Z only if BABYSTEP_ZPROBE_OFFSET is enabled — see firmware review §3)</pre>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 90" width="100%" height="90" role="img">
+      <g fill="#4cc38a"><rect x="30" y="40" width="26" height="12"/><rect x="58" y="40" width="26" height="12"/><rect x="86" y="40" width="26" height="12"/><rect x="114" y="40" width="26" height="12"/><rect x="142" y="40" width="26" height="12"/></g>
+      <text x="110" y="74" fill="#9aa3b2" font-size="11" text-anchor="middle">lines fused, flat, matte</text>
+    </svg>
+    <figcaption><span class="lbl-ok">Good:</span> lines touch with no gaps, smooth uniform top.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 90" width="100%" height="90" role="img">
+      <g fill="none" stroke="#ff5d5d" stroke-width="3"><rect x="32" y="40" width="20" height="12"/><rect x="60" y="40" width="20" height="12"/><rect x="88" y="40" width="20" height="12"/><rect x="116" y="40" width="20" height="12"/></g>
+      <text x="110" y="74" fill="#9aa3b2" font-size="11" text-anchor="middle">gaps between lines = too high</text>
+    </svg>
+    <figcaption><span class="lbl-bad">Bad:</span> visible gaps (nozzle too high) or translucent/scraped (too low).</figcaption>
+  </figure>
+</div>
+<div class="pass"><strong>Pass:</strong> solid patch, no gaps, no elephant-foot ooze, peels in one piece.
+<strong>If fail:</strong> adjust ±0.02–0.05 mm and reprint.</div>
+
+<!-- STEP 5 -->
+<h2 id="temp-tower" class="step">5 · Temperature tower</h2>
+<div class="meta"><span class="tag stl"><a href="STL/temp_tower_70mm.stl">temp_tower_70mm.stl</a></span><span class="tag">or a labeled tower — see <a href="STL/ATTRIBUTION.md">ATTRIBUTION.md</a></span></div>
+<p>Sweep ~220 → 190 °C (Orca's temperature-tower calibration inserts the per-band <code>M104</code>).
+Judge each band for adhesion, bridging, overhangs, and stringing.</p>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 120" width="100%" height="120" role="img">
+      <g fill="#3a4456" stroke="#4cc38a"><rect x="80" y="20" width="60" height="20"/><rect x="80" y="42" width="60" height="20"/><rect x="80" y="64" width="60" height="20"/><rect x="80" y="86" width="60" height="20"/></g>
+      <text x="150" y="34" fill="#9aa3b2" font-size="10">220°C</text><text x="150" y="100" fill="#9aa3b2" font-size="10">190°C</text>
+      <text x="110" y="118" fill="#9aa3b2" font-size="11" text-anchor="middle">pick lowest clean+strong band</text>
+    </svg>
+    <figcaption>Choose the lowest temp with strong layer bonding and clean surfaces — usually ~200–210 °C for Elegoo PLA.</figcaption>
+  </figure>
+</div>
+<div class="pass"><strong>Pass:</strong> a band that snaps strong with clean overhangs/minimal strings.
+<strong>If fail:</strong> all bands string → too hot / fix retraction (Step 6); all delaminate → too cold or over-cooled.</div>
+
+<!-- STEP 6 -->
+<h2 id="retraction-pa" class="step">6 · Retraction &amp; pressure / linear advance</h2>
+<div class="meta"><span class="tag stl"><a href="STL/retraction_test_50mm.stl">retraction_test_50mm.stl</a></span><span class="tag">Orca PA test</span></div>
+<p><strong>Tune pressure advance first, then retraction</strong> — good PA relieves nozzle pressure and
+shrinks the retraction you need. <strong>Direct drive = short retraction:</strong> start ~0.6–0.8 mm,
+tune <em>distance</em> down until stringing returns, then back up one notch.</p>
+<div class="warn"><strong>Retraction speed is capped at 25 mm/s</strong> — the firmware E max feedrate.
+Anything higher (the 35–45 mm/s you'll see quoted for Bowden) is silently clamped, so tune
+<strong>distance</strong>, not speed (or raise <code>DEFAULT_MAX_FEEDRATE</code> E first).</div>
+<pre>M83
+; Orca Pressure Advance (Pattern, Direct Drive): sweep K 0.0–0.10 step 0.005,
+; then a fine second pass at 0.002 around the best band. Or set Marlin K directly:
+M900 K0.04     ; Linear Advance K — small values for Sprite direct drive
+M500
+; pick ONE: Orca PA or Marlin K, not both</pre>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 100" width="100%" height="100" role="img">
+      <rect x="40" y="30" width="14" height="44" fill="#3a4456"/><rect x="166" y="30" width="14" height="44" fill="#3a4456"/>
+      <text x="110" y="92" fill="#9aa3b2" font-size="11" text-anchor="middle">clean gap between towers</text>
+    </svg>
+    <figcaption><span class="lbl-ok">Good:</span> no strings spanning the towers; crisp corners.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 100" width="100%" height="100" role="img">
+      <rect x="40" y="30" width="14" height="44" fill="#3a4456"/><rect x="166" y="30" width="14" height="44" fill="#3a4456"/>
+      <g stroke="#ff5d5d" stroke-width="1.4"><line x1="54" y1="40" x2="166" y2="44"/><line x1="54" y1="52" x2="166" y2="50"/><line x1="54" y1="62" x2="166" y2="58"/></g>
+      <text x="110" y="92" fill="#9aa3b2" font-size="11" text-anchor="middle">stringing = more retraction</text>
+    </svg>
+    <figcaption><span class="lbl-bad">Bad:</span> webbing/strings → more retraction; corner bulge → adjust K.</figcaption>
+  </figure>
+</div>
+<div class="pass"><strong>Pass:</strong> no/wispy strings; corners crisp with no bulge and no gaps at perimeter starts.
+<strong>If fail:</strong> more retraction <em>distance</em> for strings (speed is capped at 25 mm/s; ≤~1.5 mm on direct drive); K up if corners bulge, down if they show gaps.</div>
+
+<!-- STEP 7 -->
+<h2 id="speed" class="step">7 · Speed &amp; acceleration</h2>
+<div class="meta"><span class="tag stl"><a href="STL/calibration_cube_20mm.stl">calibration_cube_20mm.stl</a></span></div>
+<p>Raise acceleration in steps and watch for ghosting and skipped steps. Firmware default print accel
+is a conservative 500; the light Sprite can usually go higher.</p>
+<pre>M201 X1000 Y1000   ; raise max accel to test
+M204 P1000         ; print accel
+M500               ; save only the values you settle on</pre>
+<div class="pass"><strong>Pass:</strong> 20 mm cube measures 20 ±0.2 mm on each axis; no layer shift; acceptable ringing.
+<strong>If fail:</strong> back off accel; if dimensions are consistently off, check belt tension and steps/mm (X/Y 80, Z 400).</div>
+
+<!-- STEP 8 -->
+<h2 id="shaping" class="step">8 · Ringing &amp; input shaping</h2>
+<div class="meta"><span class="tag stl"><a href="STL/ringing_tower_60mm.stl">ringing_tower_60mm.stl</a></span></div>
+<p>Ghosting (echoes after sharp corners) comes from frame resonance. A ringing tower's oscillation
+spacing encodes the frequency.</p>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 100" width="100%" height="100" role="img">
+      <rect x="60" y="30" width="100" height="44" fill="none" stroke="#ffb020" stroke-width="2"/>
+      <g stroke="#ff5d5d" stroke-width="1" opacity="0.8"><line x1="160" y1="34" x2="178" y2="34"/><line x1="160" y1="40" x2="174" y2="40"/><line x1="160" y1="46" x2="170" y2="46"/></g>
+      <text x="110" y="92" fill="#9aa3b2" font-size="11" text-anchor="middle">echoes fade after a corner</text>
+    </svg>
+    <figcaption>Ghost echoes after a corner. Their period → resonant frequency for the shaper.</figcaption>
+  </figure>
+</div>
+<p><strong>First confirm it fits the F103.</strong> Enable <code>INPUT_SHAPING_X/Y</code> +
+<code>SHAPING_MIN_FREQ 20.0</code> (bounds the SRAM step buffer), build, and check the linker doesn't say
+<em>"region RAM overflowed"</em> before printing. Then print the tower at high accel
+(<code>M204 S1500</code>) sweeping frequency per layer:</p>
+<pre>; slicer "after layer change" G-code — sweeps M593 F 15→60 Hz up the tower:
+M593 F{(layer_num < 2 ? 0 : 15 + 45.0 * (layer_num - 2) / 297)}
+
+; read the smoothest band, convert height→Hz, then set per axis:
+M593 X F40 ; M593 Y F38             ; frequencies (YOUR measured values)
+M593 X D0.15 ; M593 Y D0.15         ; damping (zeta) — refine in 0.05 steps
+M500</pre>
+<div class="warn">Then <strong>re-tune Linear Advance K (Step 6) after</strong> Input Shaping — the sweep
+runs with LA off, so K is finalized last. If the firmware won't build/flash with IS at all, instead lower
+acceleration (Step 7) to the ring-free value, or consider Klipper for first-class resonance compensation.</div>
+
+<!-- STEP 9 -->
+<h2 id="bed-mesh" class="step">9 · Bed mesh (ABL) &amp; validation</h2>
+<div class="meta"><span class="tag stl"><a href="STL/firstlayer_patch_60mm.stl">firstlayer_patch_60mm.stl</a></span></div>
+<p>Probe the bilinear mesh at print temperature, store it, and validate the first layer everywhere.</p>
+<div class="warn"><strong>Probe at real print temp.</strong> Check <code>LEVELING_BED_TEMP</code> — if it's
+left at a low preheat default (often ~50 °C) it's below your 60 °C PLA bed, so the mesh misses warp present
+when hot. Set <code>#define LEVELING_BED_TEMP 60</code>, or run <code>G29</code> in start G-code after the bed soaks.</div>
+<pre>M190 S60 ; M109 S205   ; reach + hold print temps first
+M48 P10                ; probe repeatability — want σ &lt; 0.02 mm (&gt;0.05 = EMI/loose mount)
+G28
+G29                    ; probe bilinear mesh
+M500                   ; store
+M420 S1 Z10            ; enable leveling + fade height (put M420 S1 in your slicer start G-code)
+G26 B60 H205           ; if G26_MESH_VALIDATION compiled — print a mesh-check pattern</pre>
+<div class="pass"><strong>Pass:</strong> <code>M48</code> σ &lt; 0.02 mm; mesh Z range &lt; ~0.3–0.4 mm (<code>M420 V</code> to view); first layer (and the <code>G26</code> pattern) equally good center and edges.
+<strong>If fail:</strong> redo Step 1 (tramming); consider 5×5 grid and a smaller <code>PROBING_MARGIN</code> (firmware review §5–6).</div>
+
+<div class="card">
+  <strong>Save order when done:</strong> PID saved → flow set in Orca → Z-offset saved → best temp +
+  retraction + K saved → accel set → mesh stored and <code>M420 S1</code> in slicer start G-code.
+  Run <code>M500</code> after each stored change.
+</div>
+
+</main>
+<footer>
+  Hoverfly calibration guide · diagrams are schematic SVG (photos pending) ·
+  <a href="GUIDE.md">GUIDE.md</a> · <a href="CLAUDE.md">CLAUDE.md</a> ·
+  <a href="../docs/firmware-review/index.html">firmware review</a> ·
+  <a href="../Orca_Slicer/index.html">Orca guide</a> ·
+  <a href="../README.md">README</a> ·
+  <a href="https://github.com/samuelkordik/Hoverfly">GitHub</a>
+</footer>
+</body>
+</html>

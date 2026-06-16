@@ -1,0 +1,89 @@
+{
+  "topic": "Temperature Tower for Elegoo PLA on the Sprite Extruder Pro Direct Drive (Hoverfly)",
+  "summary": "A temperature tower is a single vertical print whose horizontal bands are each extruded at a different nozzle temperature, letting you find the lowest temperature that still gives strong layer bonding and clean detail. For Elegoo PLA the manufacturer range is roughly 190-220C (Elegoo states 190-230C usable, ~205C nominal). For Hoverfly I recommend sweeping 220 -> 190C in 5C bands (i.e. 220/215/210/205/200/195/190). Print from HOT at the bottom to COLD at the top: a band that is too cold cannot extrude/adhere and would otherwise ruin everything above it, so putting the hottest band first protects the print.\n\nDirect-drive specifics: the Sprite Extruder Pro has a very short filament path and low ooze pressure compared with a Bowden setup, so PLA generally tolerates and benefits from the LOWER end of the range (often 200-210C) without under-extrusion, and stringing is easier to suppress. Two caveats unique to this machine: (1) LIN_ADVANCE is enabled but ADVANCE_K = 0.0 (untuned). Linear Advance interacts with how the nozzle pressurizes/depressurizes, so do the temperature tower FIRST, then tune Linear Advance K at the chosen temperature; re-checking afterward is fine but temperature is the more fundamental variable. (2) The part-cooling fan and E0 auto fan (FAN1 @ 50C, full speed) strongly affect bridging/overhang results, so keep fan settings identical across the whole tower or you will misattribute droop to temperature.\n\nHow to judge each band: (a) Layer adhesion - after the print cools, try to snap/flex each band; cold bands delaminate or split between layers, good bands break across layers, not between them. (b) Stringing/oozing - look for fine hairs between the tower's two halves/pillars; hotter bands string more, cooler bands are cleaner. (c) Bridging - inspect the underside of any horizontal span for sag; excessive sag at high temp means the melt is too fluid / cooling can't keep up. (d) Overhangs - look for curling and rough, droopy edges; these worsen as temperature rises. (e) Surface finish & dimensional detail - hot = glossy but blobby/rounded corners; cold = matte, crisp, but risk of gaps/under-extrusion. Pick the LOWEST temperature that still passes the adhesion snap test and shows no gaps/under-extrusion - that minimizes stringing and maximizes overhang/bridge quality while keeping parts strong.\n\nSlicer setup: the recommended workflow is to set the filament/print temperature to the HOTTEST band (220C), slice, then inject a temperature change at the Z height of each subsequent band. In Cura use Extensions -> Post Processing -> Modify G-Code -> Add a script -> \"ChangeAtZ\", enable \"Change Extruder 1 Temp,\" set the Z height (or layer) and target temp, set \"Apply to: this layer and all subsequent layers,\" and add one ChangeAtZ entry per band. In PrusaSlicer/SuperSlicer/Orca, use the layer/height slider in the sliced G-code Preview, right-click the \"+\" at the band height, choose Add Custom G-Code, and enter M104 S<temp> (no wait, keeps printing) - e.g. M104 S215, then M104 S210 at the next band, etc. Use M104 (not M109) for the in-print steps so the print does not pause/wait at each band. Most popular tower STLs (e.g. gaaZolee's \"Smart compact temperature calibration tower\") have bands sized for 5C steps and many ship with a matching Cura script or pre-baked G-code.",
+  "stlModel": "gaaZolee \"Smart compact temperature calibration tower\" (5C bands; the de facto standard temp tower, available on Thingiverse/Printables). Any banded temp tower with bridging + overhang + stringing-bridge features works.",
+  "procedure": "1. Download a banded temperature tower STL (gaaZolee Smart compact temperature calibration tower or similar with overhang/bridge/stringing features). 2. In your slicer set the nozzle temperature to the HOTTEST band, 220C. Bed 60C, part-cooling fan at your normal PLA setting (e.g. 100% after the first few layers) and KEEP IT CONSTANT for the whole tower. 3. Slice. 4. Inject temperature steps DOWN by 5C at each band height: Cura -> Extensions > Post Processing > Modify G-Code > ChangeAtZ (enable Change Extruder 1 Temp, set height + temp, Apply to this and all subsequent layers), one entry per band. PrusaSlicer/Orca/SuperSlicer -> in G-code Preview, right-click the + on the height slider at each band, Add Custom G-Code, enter M104 S<temp> (use M104, not M109, so it does not pause). Bands: 220 (base) ->215->210->205->200->195->190 at the top. 5. Print the whole tower in one go. 6. Evaluate, from bottom (hot) to top (cold): GOOD band = strong layer adhesion (snaps across layers, not between them), no gaps or under-extrusion, minimal stringing, clean non-drooping overhangs, crisp corners, smooth bridge undersides. BAD/too HOT = heavy stringing/hairs, blobs, glossy over-rounded corners, sagging bridges/overhangs, curling. BAD/too COLD = layers peel/delaminate, visible gaps between lines, rough/under-extruded surface, weak snap. 7. PASS criterion: choose the LOWEST temperature that still passes the layer-adhesion snap test AND shows no under-extrusion/gaps. For the Sprite direct drive on Elegoo PLA this is typically 200-210C. 8. Set that temperature in your default PLA profile, then proceed to tune Linear Advance (ADVANCE_K) at that temperature.",
+  "recommendations": [
+    {
+      "title": "Sweep 220C down to 190C in 5C bands, hottest at the bottom",
+      "priority": "High",
+      "currentValue": "n/a (no temperature tower run yet)",
+      "recommendedValue": "Bands: 220 / 215 / 210 / 205 / 200 / 195 / 190 C (hot at base, cold at top)",
+      "howToApply": "Slice at 220C; inject a -5C step at each band height. Cura: ChangeAtZ post-process script per band. PrusaSlicer/Orca: right-click the height slider + > Add Custom G-Code > M104 S<temp> at each band.",
+      "rationale": "Elegoo's stated PLA range is ~190-230C (nominal ~205C); 190-220 covers the practical window for a direct drive. Printing hottest-first prevents a too-cold band (which under-extrudes/fails to adhere) from wrecking everything above it. 5C steps are the community standard and the resolution most tower STLs are designed for.",
+      "sources": [
+        "https://www.creality.com/blog/pla-print-temperature",
+        "https://www.accio.com/plp/elegoo-pla-temperature",
+        "https://clevercreations.org/temperature-tower-3d-printing-temp-tower-gcode/"
+      ]
+    },
+    {
+      "title": "Use M104 (not M109) for in-print band changes",
+      "priority": "High",
+      "currentValue": "n/a",
+      "recommendedValue": "M104 S<temp> at each band height",
+      "howToApply": "PrusaSlicer/Orca/SuperSlicer: G-code Preview > right-click + on height slider > Add Custom G-Code > 'M104 S215' (then S210, S205... at successive bands). Cura: ChangeAtZ handles this automatically when you set the temp per height.",
+      "rationale": "M104 sets the new temperature without halting motion, so the print transitions between bands continuously; M109 waits and would pause/dwell at each band, leaving an artifact and slowing the print. The hotend reaches the lower setpoint quickly enough during the band that no wait is needed when stepping DOWN.",
+      "sources": [
+        "https://clevercreations.org/temperature-tower-3d-printing-temp-tower-gcode/",
+        "https://forum.prusa3d.com/forum/prusaslicer/temp-change-for-temp-tower/"
+      ]
+    },
+    {
+      "title": "Cura setup via ChangeAtZ post-processing script",
+      "priority": "Medium",
+      "currentValue": "n/a",
+      "recommendedValue": "One ChangeAtZ entry per band, 'Apply to: this layer and all subsequent layers'",
+      "howToApply": "Cura: Extensions > Post Processing > Modify G-Code > Add a script > ChangeAtZ. Enable 'Change Extruder 1 Temp', set the band height (mm) or layer number and target temp, and set Apply-to to successive layers. Repeat for each band.",
+      "rationale": "ChangeAtZ is the supported, repeatable way to do per-height temperature changes in Cura without hand-editing G-code, and 'successive layers' makes the new temp persist through the whole band.",
+      "sources": [
+        "https://clevercreations.org/temperature-tower-3d-printing-temp-tower-gcode/",
+        "https://teachingtechyt.github.io/calibration.html"
+      ]
+    },
+    {
+      "title": "Judge each band by adhesion, stringing, bridging, overhang, and detail",
+      "priority": "High",
+      "currentValue": "n/a",
+      "recommendedValue": "Pick the LOWEST temp that still passes the layer-adhesion snap test with no under-extrusion",
+      "howToApply": "After cooling: flex/snap each band (good breaks across layers, bad delaminates between them); inspect for hairs/stringing (worse when hot); check bridge undersides and overhang edges for sag/curl (worse when hot); check corners/surface (hot=glossy/blobby/rounded, cold=matte/crisp but risk gaps).",
+      "rationale": "Lower temperature reduces stringing/ooze and improves overhang and bridge quality, but too low causes weak interlayer adhesion and under-extrusion. The optimal point is the lowest temperature that still bonds layers fully - this is the standard tower-reading methodology.",
+      "sources": [
+        "https://blog.geeetech.com/3d-printing-trouble-shooting-guide/tutorials/temperature-tower-what-is-the-best-temperature-for-3d-printing/",
+        "https://www.creality.com/blog/temperature-tower",
+        "https://teachingtechyt.github.io/calibration.html"
+      ]
+    },
+    {
+      "title": "Keep cooling-fan settings constant across the whole tower (direct-drive auto-fan caveat)",
+      "priority": "Medium",
+      "currentValue": "E0_AUTO_FAN @ 50C full speed; part-cooling per slicer profile",
+      "recommendedValue": "Fixed part-cooling fan % for the entire tower; do not let it ramp between bands",
+      "howToApply": "In the slicer, set a constant fan speed for the print and avoid auto fan-speed-by-layer-time features for this test. The E0 auto fan (FAN1_PIN @ 50C, speed 255) is the hotend heatsink fan and is fine; ensure it is the PART-cooling fan that stays constant.",
+      "rationale": "Bridging and overhang quality - two of the things you judge per band - are dominated by part cooling. If fan speed varies between bands you will wrongly attribute droop or curl to temperature. Holding cooling constant isolates temperature as the only variable.",
+      "sources": [
+        "https://teachingtechyt.github.io/calibration.html",
+        "https://www.creality.com/blog/temperature-tower"
+      ]
+    },
+    {
+      "title": "Run the temperature tower BEFORE tuning Linear Advance (ADVANCE_K)",
+      "priority": "Medium",
+      "currentValue": "LIN_ADVANCE enabled, ADVANCE_K 0.0 (untuned)",
+      "recommendedValue": "Lock in temperature first, then calibrate ADVANCE_K at that temperature",
+      "howToApply": "Finish the temp tower, set your chosen PLA temp in the profile, then run a Linear Advance / Pressure Advance tower at that fixed temperature to find K (Marlin M900 K / Ellis tower method).",
+      "rationale": "Temperature changes melt viscosity and therefore the nozzle pressure dynamics that Linear Advance compensates. Tuning K at one temperature then changing temperature invalidates K. Temperature is the more fundamental variable, so fix it first - this matters here because ADVANCE_K is still 0.0 and untuned on a direct drive that benefits from LA.",
+      "sources": [
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/pressure_linear_advance/tower_method.html",
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/index_pressure_advance.html"
+      ]
+    }
+  ],
+  "imageNeeds": [
+    "Photo of a printed temperature tower with each 5C band labeled (220 at base down to 190 at top) showing stringing/blobs at hot bands and clean detail at cooler bands",
+    "Cura screenshot of Extensions > Post Processing > Modify G-Code with a ChangeAtZ script configured (Change Extruder 1 Temp, height, target temp, apply to successive layers)",
+    "PrusaSlicer/Orca screenshot of the G-code Preview height slider with a right-click Add Custom G-Code dialog showing M104 S215",
+    "Close-up comparison of a layer-adhesion snap test: cold band delaminating between layers vs a good band breaking across layers",
+    "Annotated close-up of bridge underside and overhang edge showing sag/curl on a too-hot band vs clean on an optimal band"
+  ]
+}

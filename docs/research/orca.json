@@ -1,0 +1,187 @@
+{
+  "topic": "Orca Slicer setup for \"Hoverfly\" (modified Ender 3 Pro, SKR Mini E3 V2.0, Sprite Extruder Pro direct drive, CRTouch) printing ELEGOO PLA — SPEED and QUALITY profiles",
+  "summary": "This guide defines two Orca Slicer profiles for ELEGOO PLA on the Hoverfly, both engineered to stay inside the current Marlin motion limits so the slicer never commands more than the firmware will honor. The hard firmware ceilings that bound every speed/accel recommendation are: DEFAULT_MAX_FEEDRATE {500,500,5,25} (X/Y travel ceiling 500 mm/s, Z 5 mm/s, E 25 mm/s), DEFAULT_MAX_ACCELERATION {500,500,100,5000}, and a *global* DEFAULT_ACCELERATION/TRAVEL/RETRACT of only 500 mm/s^2 with JUNCTION_DEVIATION_MM 0.08 (CLASSIC_JERK disabled). The 500 mm/s^2 acceleration cap is the single biggest constraint: no matter what print/travel speed Orca shows, the toolhead can only ramp at 500 mm/s^2, so on a 220 mm bed it never reaches high commanded speeds and aggressive slicer speeds mostly add nothing. Recommendations therefore keep Orca speeds realistic for a 500 mm/s^2 machine and set Orca's own acceleration/jerk-equivalent controls to match firmware rather than exceed it. ELEGOO PLA runs 200-220 C nozzle / 55-60 C bed; both profiles use direct-drive retraction (~0.6-1.0 mm). The biggest open tuning gap is LIN_ADVANCE ADVANCE_K = 0.0 (untuned) — for a Sprite direct drive PLA wants roughly K 0.02-0.06, so a Pressure Advance calibration is the highest-value action and is baked into the recommended calibration order. Two firmware-side notes are flagged: (a) raising DEFAULT_ACCELERATION toward ~1000-1500 mm/s^2 would let the SPEED profile actually deliver speed; (b) the README's \"Dual Z-axis\" claim is NOT reflected in firmware (Z2_DRIVER_TYPE is commented out at Configuration.h line 171 — firmware is single-Z), which must be resolved. Profile A (SPEED): 0.28 mm layer, 0.5 mm line width, ~150 mm/s walls/infill capped by 500 mm/s^2 accel, fan 100%. Profile B (QUALITY): 0.12 mm layer, 0.42 mm line width, ~40-60 mm/s outer walls, fan 100%, tighter seam control. Run Orca calibrations in this order: Temp Tower -> Flow Ratio (pass 1 then pass 2) -> Pressure Advance (writes M900 K / save with M500) -> Max Volumetric Speed -> Retraction -> Cornering. Bed is bang-bang (PIDTEMPBED disabled) so expect +/-1-2 C bed swing — fine for PLA. E max feedrate 25 mm/s caps volumetric flow; with 0.4 nozzle that is the real throughput limit on the SPEED profile.",
+  "stlModel": "Orca Slicer built-in calibration models (Temperature Tower, Flow Rate, Pressure Advance line/pattern, Max Volumetric Speed, Retraction tower, Cornering) plus a 3DBenchy for final validation",
+  "procedure": "RECOMMENDED ORCA CALIBRATION ORDER (do once per ELEGOO PLA spool/color, save results into a dedicated filament profile):\n1) TEMPERATURE TOWER (Calibration menu). Range 230 down to 190 in 5 C bands. PASS: the band with cleanest overhangs, no stringing, sharp text, good layer bonding. For ELEGOO PLA expect best result 205-215 C. FAIL: stringing/blobs (too hot) or matte/weak layers and gaps (too cold). Set the winning temp in the filament profile.\n2) FLOW RATIO. Run the Orca \"Flow Rate\" test (Pass 1: coarse, pick best surface; then Pass 2: fine). Start from Orca's generic PLA flow ratio (~0.98). PASS: top surface is smooth/flat, no gaps (under-extrusion) and no ridging/over-fill. Because E-steps are already calibrated (E=423), expect final flow ratio ~0.95-1.00. Record the multiplied value Orca gives you.\n3) PRESSURE ADVANCE (this is the key gap — ADVANCE_K is currently 0.0). Use Orca \"Pressure Advance\" -> for Marlin Linear Advance choose the Line method or Pattern method. Test K 0.0 to 0.10, step 0.005. PASS: corners are sharp with uniform line width and no bulge before corners / no gap after corners. For a Sprite direct drive on PLA the winner is typically K 0.02-0.06. To persist: send M900 K<value> then M500 (EEPROM is enabled), or add M900 K<value> to the filament Start G-code in Orca. Re-flashing firmware to set ADVANCE_K is optional once you know the value.\n4) MAX VOLUMETRIC SPEED. Run the Orca MVS test. CRITICAL: the firmware caps E feedrate at 25 mm/s. With a 0.4 nozzle that hard-limits volumetric flow; do not let Orca's result exceed what 25 mm/s E allows. PASS: highest flow with no under-extrusion/heat-creep skipping. Expect ~10-14 mm^3/s realistically; set this so the SPEED profile auto-throttles thick layers.\n5) RETRACTION. Run the Orca Retraction tower for direct drive. Test 0.4-1.2 mm. PASS: no stringing with minimal distance. Expect 0.6-1.0 mm at 35-40 mm/s for the Sprite.\n6) CORNERING (Junction Deviation). Optional. Firmware JD is 0.08 mm with 500 mm/s^2 accel. Validate rather than push; if ringing appears, lower JD or accel. PASS: clean corners, no ghosting echoes after sharp features. Because INPUT_SHAPING is disabled, ringing is controlled only by accel/JD — keep accel modest.\nVALIDATION: print a 3DBenchy at each profile. SPEED Benchy should finish fast with acceptable walls; QUALITY Benchy should show crisp detail, clean overhangs, tidy seam.",
+  "recommendations": [
+    {
+      "title": "ELEGOO PLA nozzle temperature (both profiles, refine via Temp Tower)",
+      "priority": "High",
+      "currentValue": "Hotend PID tuned (KP 21.73 / KI 1.54 / KD 76.55); thermistor TEMP_SENSOR 1; no firmware temp cap issue",
+      "recommendedValue": "QUALITY 205 C; SPEED 215 C (test 190-230 C, ELEGOO spec range)",
+      "rationale": "ELEGOO PLA datasheet/community range is ~190-230 C; 200-215 C is the practical sweet spot. Run hotter for the SPEED profile because faster flow needs more heat to stay molten and bond; run cooler for QUALITY to sharpen detail and reduce stringing. Confirm exact value with the Temperature Tower since color/lot varies.",
+      "sources": [
+        "https://www.accio.com/plp/elegoo-pla-temperature",
+        "https://github.com/OrcaSlicer/OrcaSlicer/wiki/calibration_guide"
+      ]
+    },
+    {
+      "title": "Bed temperature (both profiles)",
+      "priority": "High",
+      "currentValue": "PIDTEMPBED DISABLED — bed runs bang-bang, expect +/-1-2 C swing (acceptable for PLA)",
+      "recommendedValue": "60 C first layer, 55-60 C subsequent",
+      "rationale": "ELEGOO PLA recommends ~50-65 C bed. 60 C gives reliable first-layer adhesion on a 220x220 bed; you can drop to 55 C after layer 1 to reduce elephant-foot. Bang-bang control is fine here because PLA is not temperature-sensitive on the bed; no need to enable PIDTEMPBED.",
+      "sources": [
+        "https://www.accio.com/plp/elegoo-pla-temperature"
+      ]
+    },
+    {
+      "title": "Flow ratio",
+      "priority": "High",
+      "currentValue": "E steps calibrated: DEFAULT_AXIS_STEPS_PER_UNIT E=423 (Sprite), EDITABLE_STEPS_PER_UNIT on",
+      "recommendedValue": "Start 0.98; calibrate to ~0.95-1.00 with Orca Flow Rate (Pass 1 then Pass 2)",
+      "rationale": "Because E-steps are already calibrated for the Sprite, slicer flow ratio only needs a small trim. Calibrate flow AFTER temperature (temperature changes viscosity and apparent flow). Use the same value for both profiles since it is a material/hardware property.",
+      "sources": [
+        "https://www.obico.io/blog/flow-rate-calibration-orca-slicer-comprehensive-guide/",
+        "https://github.com/OrcaSlicer/OrcaSlicer/wiki/calibration_guide"
+      ]
+    },
+    {
+      "title": "Retraction (direct drive Sprite)",
+      "priority": "High",
+      "currentValue": "DEFAULT_MAX_FEEDRATE E = 25 mm/s; DEFAULT_EJERK 5.0; FWRETRACT disabled (slicer handles retraction)",
+      "recommendedValue": "Distance 0.8 mm (test 0.4-1.2); retract speed 35 mm/s; deretract 35 mm/s; z-hop OFF (or 0.2 mm only if scarring). Same for both profiles.",
+      "rationale": "Direct-drive extruders need far less retraction than Bowden. Sprite/community values land near 0.6-1.0 mm. Keep retract speed at/under the firmware E ceiling (25 mm/s = max sustained; 35 mm/s peak retract is acceptable as it is a short move, but if you see skips drop to 25 mm/s). Avoid z-hop unless needed — it slows prints and the slow Z (max 5 mm/s) makes hops expensive.",
+      "sources": [
+        "https://www.crealityexperts.com/creality-sprite-extruder-only-install-guide",
+        "https://all3dp.com/2/orca-slicer-retraction-settings-simply-explained/"
+      ]
+    },
+    {
+      "title": "Pressure Advance / Linear Advance (HIGHEST-VALUE FIX — currently untuned)",
+      "priority": "High",
+      "currentValue": "LIN_ADVANCE ENABLED but ADVANCE_K = 0.0 (UNTUNED); EEPROM_SETTINGS enabled",
+      "recommendedValue": "Calibrate to ~0.04 (test 0.0-0.10, step 0.005); persist via M900 K<value> + M500, or add M900 K<value> to filament Start G-code. Same K for both profiles.",
+      "rationale": "ADVANCE_K=0.0 means no pressure compensation at all, so corners bulge and gaps appear after corners — the most visible quality defect on this otherwise well-tuned printer. Direct-drive PLA typically wants K ~0.02-0.06 (much lower than Bowden). This single calibration improves both speed and quality profiles. Because EEPROM is enabled you can store it with M500.",
+      "sources": [
+        "https://marlinfw.org/docs/features/lin_advance.html",
+        "https://blog.uavmodel.com/3d-printer-linear-advance-tuning-pressure-advance-in-marlin-and-klipper-2026-guide/",
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/pressure_linear_advance/saving.html"
+      ]
+    },
+    {
+      "title": "Cooling / part fan (both profiles)",
+      "priority": "High",
+      "currentValue": "E0_AUTO_FAN (hotend fan) on FAN1_PIN auto-on at 50 C, speed 255 — this is the HOTEND fan, separate from the part fan",
+      "recommendedValue": "Part fan: 0% layer 1, then ramp to 100% by layer 3-4; min layer time 8-10 s; slow down to maintain min layer time. SPEED can allow 100% from layer 2.",
+      "rationale": "PLA needs aggressive part cooling (100% after the first few layers) for sharp detail, clean overhangs and bridging. Keep layer 1 fan off for bed adhesion. The auto E0 fan is the heatbreak cooler and is independent — do not confuse it with the part-cooling fan in Orca.",
+      "sources": [
+        "https://orcaslicers.us.com/settings/",
+        "https://wiki.anycubic.com/en/software-and-app/new-page-anycubic-slicer-beta(orca-version)/cooling"
+      ]
+    },
+    {
+      "title": "Layer height & line width",
+      "priority": "Medium",
+      "currentValue": "0.4 mm nozzle assumed; mechanical resolution fine (Z=400 steps/mm)",
+      "recommendedValue": "SPEED: 0.28 mm layer / 0.5 mm line width. QUALITY: 0.12 mm layer / 0.42 mm line width. First layer 0.25-0.30 mm both.",
+      "rationale": "SPEED uses ~70% of nozzle (0.28 of 0.4) for fewer layers and faster Z progress (important since Z max feedrate is only 5 mm/s). QUALITY uses a fine 0.12 mm layer for detail; wider-than-nozzle line widths help speed, near-nozzle widths help fine features.",
+      "sources": [
+        "https://orcaslicers.us.com/settings/"
+      ]
+    },
+    {
+      "title": "Print speeds (walls / infill) — bounded by 500 mm/s^2 acceleration",
+      "priority": "High",
+      "currentValue": "DEFAULT_MAX_FEEDRATE X/Y 500 mm/s, but DEFAULT_ACCELERATION 500 mm/s^2 caps real achievable speed; INPUT_SHAPING disabled",
+      "recommendedValue": "SPEED: outer wall 80 mm/s, inner wall 150 mm/s, infill 150 mm/s, top/bottom 60 mm/s. QUALITY: outer wall 40 mm/s, inner wall 60 mm/s, infill 80 mm/s, top/bottom 40 mm/s.",
+      "rationale": "With only 500 mm/s^2 acceleration the head needs ~22 mm to reach 150 mm/s and never hits the 500 mm/s firmware ceiling on short moves, so higher slicer speeds add little but increase ringing (no input shaping to absorb it). The SPEED numbers are realistic for this accel; QUALITY keeps outer walls slow for surface finish. Raising DEFAULT_ACCELERATION in firmware (see separate rec) is the real unlock for speed.",
+      "sources": [
+        "https://www.3dmakerengineering.com/blogs/3d-printing/velocity-acceleration-jerk-and-junction-deviation",
+        "https://makershop.co/3d-printer-jerk-and-acceleration-settings/"
+      ]
+    },
+    {
+      "title": "Travel speed",
+      "priority": "Medium",
+      "currentValue": "X/Y max feedrate 500 mm/s, accel 500 mm/s^2; Z max feedrate 5 mm/s (very slow)",
+      "recommendedValue": "Travel 150 mm/s both profiles (firmware allows up to 500 but accel limits benefit). Z-hop speed leave default; minimize z-hops.",
+      "rationale": "Travel can be set to firmware max (500) but the 500 mm/s^2 accel means the head rarely reaches it on a 220 mm bed; 150 mm/s is a sensible, vibration-friendly value that won't trip ringing. Note Z moves are very slow (5 mm/s) so avoid frequent z-hops.",
+      "sources": [
+        "https://makershop.co/3d-printer-jerk-and-acceleration-settings/"
+      ]
+    },
+    {
+      "title": "Acceleration in Orca (respect firmware ceiling)",
+      "priority": "High",
+      "currentValue": "DEFAULT_ACCELERATION 500 / TRAVEL 500 / RETRACT 500 mm/s^2; DEFAULT_MAX_ACCELERATION {500,500,100,5000}",
+      "recommendedValue": "Set all Orca accelerations to 500 mm/s^2 (do NOT exceed): outer wall 500, inner 500, infill 500, travel 500, first layer 300. Same both profiles.",
+      "rationale": "The firmware globally caps acceleration at 500 mm/s^2; any higher value in Orca is silently clamped, so matching it keeps slicer time estimates accurate and avoids the false impression of speed. Lower first-layer accel (300) improves adhesion. This is the firmware constraint that defines both profiles.",
+      "sources": [
+        "https://www.3dmakerengineering.com/blogs/3d-printing/velocity-acceleration-jerk-and-junction-deviation"
+      ]
+    },
+    {
+      "title": "Jerk / Junction Deviation in Orca",
+      "priority": "Medium",
+      "currentValue": "CLASSIC_JERK disabled; JUNCTION_DEVIATION_MM 0.08; DEFAULT_EJERK 5.0",
+      "recommendedValue": "Leave Orca 'Jerk' / cornering controls at default and rely on firmware JD 0.08. If you enable Orca jerk control, keep XY jerk ~8-10 mm/s equivalent; do not raise JD above 0.10 without testing.",
+      "rationale": "Firmware uses Junction Deviation (0.08 mm), not classic jerk, so Orca per-feature jerk fields are mostly informational. JD 0.08 is a sane default for a bed slinger; raising it speeds corners but causes ringing (no input shaping here). Validate with the Cornering test rather than guessing.",
+      "sources": [
+        "https://www.3dmakerengineering.com/blogs/3d-printing/velocity-acceleration-jerk-and-junction-deviation",
+        "https://www.thingiverse.com/thing:3463159"
+      ]
+    },
+    {
+      "title": "Seam settings",
+      "priority": "Medium",
+      "currentValue": "n/a (slicer-only)",
+      "recommendedValue": "SPEED: Seam = Nearest (fastest, least travel). QUALITY: Seam = Aligned (back) or use Scarf seam; enable 'Wipe before retract' / wipe distance ~1 mm; reduce outer-wall speed at seam.",
+      "rationale": "Nearest seam minimizes travel for speed. Aligned/scarf seam hides the z-seam in one consistent line or smooths it for clean visible surfaces. With pressure advance tuned, seam blobs shrink further.",
+      "sources": [
+        "https://orcaslicers.us.com/settings/"
+      ]
+    },
+    {
+      "title": "Max volumetric speed (throughput cap from E feedrate)",
+      "priority": "Medium",
+      "currentValue": "DEFAULT_MAX_FEEDRATE E = 25 mm/s (hard firmware extrusion ceiling)",
+      "recommendedValue": "Calibrate with Orca MVS test; expect ~10-14 mm^3/s. Do not set above what 25 mm/s E flow allows for a 0.4 nozzle.",
+      "rationale": "Even though SPEED uses high mm/s, the firmware caps the extruder at 25 mm/s, which caps volumetric flow. Setting a correct MVS lets Orca auto-slow thick/fast extrusions so the printer never demands more filament than the firmware/hotend can melt, preventing under-extrusion on the SPEED profile.",
+      "sources": [
+        "https://github.com/OrcaSlicer/OrcaSlicer/wiki/calibration_guide",
+        "https://marlinfw.org/docs/features/lin_advance.html"
+      ]
+    },
+    {
+      "title": "Supports (basics)",
+      "priority": "Low",
+      "currentValue": "n/a (slicer-only)",
+      "recommendedValue": "Type: Normal (tree for organic). Top Z distance 0.2 mm (1 layer at 0.2); support/object XY 0.4 mm; support speed 60-80 mm/s; interface 2 layers, interface spacing 0.2 mm; threshold overhang 45-55 deg.",
+      "rationale": "0.2 mm top gap balances support strength vs clean removal for PLA on a direct drive. Slower support speed avoids skips; 45-55 deg threshold avoids needless supports given PLA bridges/overhangs well with the 100% fan profile.",
+      "sources": [
+        "https://orcaslicers.us.com/settings/"
+      ]
+    },
+    {
+      "title": "FIRMWARE: raise DEFAULT_ACCELERATION to actually enable the SPEED profile",
+      "priority": "Medium",
+      "currentValue": "DEFAULT_ACCELERATION 500, DEFAULT_TRAVEL_ACCELERATION 500, DEFAULT_MAX_ACCELERATION X/Y 500",
+      "recommendedValue": "Raise DEFAULT_ACCELERATION and DEFAULT_TRAVEL_ACCELERATION toward 1000-1500, and DEFAULT_MAX_ACCELERATION X/Y to ~1500, AFTER tuning Pressure Advance and ideally enabling INPUT_SHAPING. Test for ringing.",
+      "rationale": "At 500 mm/s^2 the SPEED profile cannot actually move fast on a small bed. Raising accel is the real unlock, but it will introduce ringing because INPUT_SHAPING_X/Y are disabled — enable and tune input shaping first, then raise accel. Change via M204/M201 + M500 for testing before re-flashing.",
+      "sources": [
+        "https://makershop.co/3d-printer-jerk-and-acceleration-settings/",
+        "https://www.3dmakerengineering.com/blogs/3d-printing/velocity-acceleration-jerk-and-junction-deviation"
+      ]
+    },
+    {
+      "title": "DISCREPANCY: README says 'Dual Z-axis' but firmware is single-Z",
+      "priority": "High",
+      "currentValue": "Configuration.h line 171: //#define Z2_DRIVER_TYPE A4988 is COMMENTED OUT — firmware drives a single Z. SKR Mini E3 V2.0 has only one Z stepper output.",
+      "recommendedValue": "Resolve documentation vs hardware: (1) if a 2nd Z motor exists, it must be wired in series/parallel to the single Z driver (no independent control, no dual-Z auto-align possible on this board); OR (2) there is no second motor and the README is wrong — correct README.md line 7. The SKR Mini E3 V2.0 cannot do independent dual-Z without an external driver.",
+      "rationale": "This affects slicer/print expectations and gantry leveling. With true dual-Z absent, Z_STEPPER_AUTO_ALIGN/G34 is impossible; manual gantry leveling is required. The mismatch must be surfaced so the user knows whether two motors share one driver (series wiring, fine for a light gantry) or the claim should be removed. No slicer setting compensates for a mechanically unsquare gantry.",
+      "sources": [
+        "https://github.com/bigtreetech/BIGTREETECH-SKR-mini-E3",
+        "https://marlinfw.org/docs/configuration/configuration.html"
+      ]
+    }
+  ],
+  "imageNeeds": [
+    "Orca Slicer Calibration menu showing the test list in recommended order (Temp Tower, Flow Rate, Pressure Advance, Max Volumetric Speed, Retraction, Cornering)",
+    "Annotated Temperature Tower for ELEGOO PLA highlighting the 205-215 C band",
+    "Pressure Advance line/pattern test result showing corner bulge (too high K) vs gap (too low K) vs ideal",
+    "Side-by-side speed vs quality profile settings panel in Orca",
+    "Diagram of acceleration ramp on a 220 mm bed at 500 mm/s^2 showing the head never reaches high commanded speed",
+    "SKR Mini E3 V2.0 stepper wiring diagram highlighting the single Z driver output relevant to the dual-Z discrepancy"
+  ]
+}

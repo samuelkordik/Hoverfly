@@ -11,6 +11,22 @@ The printer is a Creality Ender 3 Pro with the following modifications/additions
 
 This repository is for me to keep track of configuration and firmware files.
 
+## Documentation
+
+- **[Firmware review](docs/firmware-review/index.html)** ([markdown](docs/firmware-review/firmware-review.md)) — prioritized Marlin config recommendations.
+- **[Orca Slicer guide](Orca_Slicer/index.html)** ([markdown](Orca_Slicer/orca-slicer-guide.md)) — Elegoo PLA, with Speed and Quality profiles.
+- **[Calibration & tuning guide](Calibration_Guide/index.html)** — 9-step ordered tune-up with [STL test models](Calibration_Guide/STL/); also a structured [GUIDE.md](Calibration_Guide/GUIDE.md) and a [CLAUDE.md](Calibration_Guide/CLAUDE.md) for working through calibration interactively with Claude.
+
+### How these were built
+
+These guides were produced by a multi-agent research workflow: parallel agents did real web research
+(Marlin docs, Ellis' Print Tuning Guide, Teaching Tech, RepRap wiki, and vendor/community sources)
+grounded in Hoverfly's actual firmware values, then wrote the guides, the 9-step procedure, and the
+calibration test STLs. The raw structured findings behind every recommendation — including seven that
+were recovered from the agent transcripts after the run was interrupted partway — are preserved in
+[`docs/research/`](docs/research/README.md). The firmware review changes no firmware files; it's advisory,
+and motion/temperature numbers should be confirmed against the calibration guide before you commit them.
+
 ## Marlin Configuration Adjustments
 Using the "Creality/Ender-3 Pro/BigTreeTech SKR Mini E3 2.0" config example, with the following key changes:
 

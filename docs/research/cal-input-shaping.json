@@ -1,0 +1,88 @@
+{
+  "topic": "Ringing/Ghosting and Input Shaping (M593) on the SKR Mini E3 V2.0 (STM32F103)",
+  "summary": "Ringing (also called ghosting or echoing) is the repeated, fading \"echo\" of sharp features — corners, holes, text — that appears downstream of a direction change. It is mechanical resonance: the toolhead/gantry rings at its natural frequency after an abrupt acceleration change, and the nozzle deposits that oscillation into the wall. Marlin's Input Shaping (INPUT_SHAPING_X / INPUT_SHAPING_Y, tuned with M593) cancels it by splitting each impulse into timed sub-impulses whose echoes destructively interfere at the measured resonant frequency. On Hoverfly it is currently DISABLED, with default placeholder values SHAPING_FREQ_X/Y = 40.0 Hz and SHAPING_ZETA_X/Y = 0.15.\n\nFEASIBILITY ON THIS BOARD — FLAG HONESTLY. The SKR Mini E3 V2.0 uses an STM32F103RCT6: Cortex-M3 @ 72 MHz, 48 KB SRAM, and a flash part the vendor officially specifies as 256 KB (Marlin builds for it in a \"512K\" mode that uses undocumented flash beyond the warranted 256 KB). Input Shaping is the single most resource-hungry motion feature in Marlin: it allocates a step buffer in SRAM sized from SHAPING_FREQ, steps/mm, and max feedrate, and it adds meaningful flash. On 48 KB SRAM this is the real bottleneck. Community reports confirm both that people DO run XY input shaping on this exact chip (Marlin 2.1.2.2, STM32F103RC-256) AND that enabling it can tip a build into a linker \"RAM region overflowed\" failure. Conclusion: it is feasible but tight — expect to free up SRAM/flash by trimming other features (drop unused languages, reduce LCD/menu extras, possibly thin the bed-leveling grid) and by using SHAPING_MIN_FREQ to cap buffer size. If the build overflows RAM, that is the constraint, not a config typo. The lower-resource path that delivers most of the benefit without the SRAM cost is simply lowering acceleration and tightening junction deviation (already conservative here at ACCEL 500 / JD 0.08).\n\nA second important interaction: LIN_ADVANCE is enabled on Hoverfly. Input shaping and linear advance coexist, but the M593 frequency-sweep calibration G-code deliberately disables linear advance during the sweep, and the K factor must be re-tuned AFTER input shaping is dialed in. Since LIN_ADVANCE K is currently 0.0 (untuned), the sensible order is: tune input shaping (or decide to skip it), then tune Linear Advance K, in that order.\n\nThe standard calibration is the ringing tower: a vase-mode tower printed at high speed/acceleration while a layer-change G-code steps M593 frequency from ~15 Hz to ~60 Hz over the height. You find the smoothest band, measure its Z height, convert to frequency, set M593 F per axis, then tune the D (zeta) damping, and M500 to save.",
+  "stlModel": "Ringing Tower (Marlin/Klipper \"ringing_tower\" or TH3D ringing tower STL) — printed in vase/spiral mode",
+  "procedure": "GOAL: find the dominant resonant frequency (Hz) for X and for Y, plus a damping factor (zeta), so M593 cancels ringing.\n\nPRECONDITIONS\n- Decide first whether the board can take it. Enable INPUT_SHAPING_X and INPUT_SHAPING_Y, set SHAPING_MIN_FREQ 20.0 to bound SRAM use, compile. If the linker reports \"region RAM overflowed by N bytes,\" free SRAM (remove unused LCD languages, disable SHAPING_MENU, trim extras) until it fits, OR abandon input shaping and instead just keep acceleration modest. Do not proceed to print calibration until firmware actually flashes.\n- Rigidity first: check that the X gantry eccentric nuts/V-wheels are snug (no rock), belts are tight, and the Z lead screw / frame bolts are tight. Input shaping masks resonance; it does not fix a loose machine.\n\nSTEP 1 — SLICE THE TOWER\n- Model: ringing tower STL, vase/spiral (single-wall) mode.\n- Layer height 0.2 mm, 1 perimeter, 0% infill, no top layers.\n- External perimeter speed: as high as the printer reasonably runs — 90-100 mm/s.\n- X/Y acceleration >= 1000 mm/s^2 for the test (override Hoverfly's 500 just for this print, e.g. M204 S1500 in start G-code) so ringing is actually excited.\n- Disable Arachne and \"minimum layer time\"/slowdown-for-cooling so speed stays constant.\n\nSTEP 2 — SWEEP FREQUENCY VIA LAYER-CHANGE G-CODE\n- Add to the slicer \"after layer change\" G-code (PrusaSlicer/Orca syntax):\n  M593 F{(layer_num < 2 ? 0 : 15 + 45.0 * (layer_num - 2) / 297)}\n- This sweeps 15 Hz -> 60 Hz across 297 layers. This sweeps ALL shaped axes at once. To isolate X vs Y you can run the X-facing and Y-facing faces of the tower, or do two prints adding the X/Y axis letter to M593.\n- Note: the sweep G-code intentionally runs with Linear Advance off; that is expected.\n\nSTEP 3 — PRINT, then READ THE TOWER\n- After cooling, look at each face. The ringing/ghost lines beside the corners will be strong at some heights and nearly vanish at others.\n- GOOD = the band where the surface is smoothest and ghost echoes are weakest, just below where resonance reappears. BAD = bands with pronounced repeating echo lines.\n- Measure the Z height (mm) of the smoothest band with calipers.\n\nSTEP 4 — CONVERT HEIGHT TO FREQUENCY\n- freq_Hz = 15 + 45 * (z_mm / 0.2 - 2) / 297\n- Example: smoothest at z = 20 mm -> 15 + 45*(100-2)/297 ≈ 29.8 Hz.\n- Do this for the X-facing face and the Y-facing face separately. (Tip: Marlin's online Input Shaping calibration tool / TH3D's calculator generate this G-code and do the math for you.)\n\nSTEP 5 — APPLY\n- M593 X F<freqX>   (e.g. M593 X F29.8)\n- M593 Y F<freqY>\n- M500 to save.\n\nSTEP 6 — TUNE DAMPING (ZETA, the D value)\n- Default D ~0.15 (current placeholder). Reprint a short tower (or the damping pattern) stepping D in 0.05 increments from 0.05.\n- Pick the most uniform pattern below the resonant frequency. Apply with M593 X D<value> / M593 Y D<value>, M500.\n- Higher zeta = more robust to frequency error but slightly more low-pass smoothing.\n\nPASS / FAIL\n- PASS: at the chosen frequency the ghost echoes beside corners are visibly reduced vs the 0 Hz (disabled) band, with no new artifacts, and the firmware runs without resets at high speed (an undersized SRAM buffer shows up as \"reduced effectiveness at high speed,\" not a crash).\n- FAIL / RECONSIDER: build won't fit in RAM; or no height looks clearly better (machine is too loose — fix mechanics); or print quality degrades at speed (buffer too small — raise SHAPING_MIN_FREQ or lower max feedrate of shaped axes).\n\nSTEP 7 — RE-TUNE LINEAR ADVANCE AFTER\n- Because LIN_ADVANCE K is 0.0 and input shaping changes effective dynamics, run the Linear Advance K calibration (M900) AFTER input shaping is finalized.",
+  "recommendations": [
+    {
+      "title": "Verify the firmware physically fits before committing to Input Shaping on the F103",
+      "priority": "High",
+      "rationale": "The SKR Mini E3 V2.0's STM32F103RCT6 has only 48 KB SRAM and a flash part the vendor officially rates at 256 KB (Marlin uses an undocumented 512K mode). Input Shaping allocates a step buffer in SRAM and adds flash; community builds on this exact chip have flipped from compiling to a linker 'RAM region overflowed' failure once IS was enabled. This is a real hardware ceiling, not a config mistake — confirm it builds and flashes before printing any calibration tower.",
+      "currentValue": "INPUT_SHAPING_X / INPUT_SHAPING_Y both disabled; placeholders SHAPING_FREQ_X/Y 40.0, SHAPING_ZETA_X/Y 0.15",
+      "recommendedValue": "Enable both, compile, and confirm no RAM/flash overflow; if it overflows, free SRAM/flash (see next item) or do not enable IS",
+      "howToApply": "In Configuration_adv.h uncomment #define INPUT_SHAPING_X and #define INPUT_SHAPING_Y, then build. Read the linker summary for RAM% and 'region overflowed' messages before flashing.",
+      "sources": [
+        "https://github.com/MarlinFirmware/Marlin/issues/26183",
+        "https://m.facebook.com/groups/marlinfirmware/posts/6340822602687352/",
+        "https://marlinfw.org/docs/features/input_shaping.html"
+      ]
+    },
+    {
+      "title": "Bound the SRAM step buffer with SHAPING_MIN_FREQ and trim other features",
+      "priority": "High",
+      "rationale": "The IS step buffer size grows with steps/mm, max feedrate, and inversely with frequency; Marlin exposes SHAPING_MIN_FREQ and SHAPING_MAX_STEPRATE specifically to cap it. On a 48 KB-SRAM F103 this is how you make IS fit and avoid 'reduced effectiveness at high speed.' Freeing flash/SRAM (unused LCD languages, SHAPING_MENU off) gives headroom on the 256K-official part.",
+      "currentValue": "SHAPING_MIN_FREQ commented out; SHAPING_MAX_STEPRATE commented out; SHAPING_MENU off",
+      "recommendedValue": "SHAPING_MIN_FREQ 20.0 (uncommented); leave SHAPING_MENU disabled; trim unused features if RAM is tight",
+      "howToApply": "In Configuration_adv.h uncomment //#define SHAPING_MIN_FREQ 20.0. Keep //#define SHAPING_MENU commented. If still overflowing, reduce enabled LCD languages and other optional features.",
+      "sources": [
+        "https://marlinfw.org/docs/features/input_shaping.html",
+        "https://github.com/MarlinFirmware/Marlin/issues/26183"
+      ]
+    },
+    {
+      "title": "Calibrate with the ringing-tower frequency sweep, then set M593 per axis",
+      "priority": "Medium",
+      "rationale": "The accepted method: print a vase-mode ringing tower while a layer-change macro sweeps M593 frequency 15->60 Hz, find the smoothest band, convert its Z height to Hz (freq = 15 + 45*(z/0.2 - 2)/297), and set X and Y independently. This finds the true resonant frequency instead of the 40 Hz placeholder.",
+      "currentValue": "SHAPING_FREQ_X 40.0, SHAPING_FREQ_Y 40.0 (untested placeholders)",
+      "recommendedValue": "Measured per-axis frequencies (typically ~30-50 Hz on a bed-slinger Ender 3); set via M593 X F<fx> / M593 Y F<fy> and M500",
+      "howToApply": "Slicer 'after layer change' G-code: M593 F{(layer_num < 2 ? 0 : 15 + 45.0 * (layer_num - 2) / 297)} ; print at 90-100 mm/s, accel >=1000; then M593 X F<measured> Y F<measured>; M500.",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/M593.html",
+        "https://tickets.th3dstudio.com/help-guides/article/unifiedmarlin-input-shaping-tuning-guide"
+      ]
+    },
+    {
+      "title": "Tune the damping factor (D / zeta) after frequency, in 0.05 steps",
+      "priority": "Medium",
+      "rationale": "After frequency, the D (zeta) value controls how aggressively the echo is damped. Marlin's procedure steps zeta by 0.05 per pass and picks the most uniform pattern below the resonant frequency. The 0.15 placeholder is a reasonable start but should be verified.",
+      "currentValue": "SHAPING_ZETA_X 0.15, SHAPING_ZETA_Y 0.15",
+      "recommendedValue": "Confirm or adjust by test; ~0.10-0.15 is typical",
+      "howToApply": "M593 X D<value> / M593 Y D<value> stepping 0.05; pick the smoothest pattern; M500 to save.",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/M593.html",
+        "https://tickets.th3dstudio.com/help-guides/article/unifiedmarlin-input-shaping-tuning-guide"
+      ]
+    },
+    {
+      "title": "Re-tune Linear Advance K AFTER input shaping (order matters)",
+      "priority": "Medium",
+      "rationale": "LIN_ADVANCE is enabled but K=0.0 (untuned) — a real gap for a Sprite direct-drive extruder. Input shaping and Linear Advance coexist, but the IS frequency-sweep runs with LA disabled and the K factor should be calibrated after IS is finalized. Doing LA first would waste the work.",
+      "currentValue": "LIN_ADVANCE enabled, ADVANCE_K 0.0",
+      "recommendedValue": "Tune K after IS (direct-drive Sprite usually lands ~0.02-0.08); set with M900 K<value>, M500",
+      "howToApply": "After IS is saved, run a Linear Advance K test pattern and set M900 K<value>; M500. Sequence: mechanics -> input shaping -> Linear Advance K.",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/M593.html",
+        "https://marlinfw.org/docs/features/input_shaping.html"
+      ]
+    },
+    {
+      "title": "If Input Shaping won't fit, fall back to conservative acceleration / junction deviation",
+      "priority": "Low",
+      "rationale": "On a resource-limited F103 the lowest-risk way to keep ringing in check without the SRAM cost is to keep acceleration modest and junction deviation tight — which Hoverfly already does (ACCEL 500, JD 0.08). This is the pragmatic alternative if the build overflows RAM.",
+      "currentValue": "DEFAULT_ACCELERATION 500, JUNCTION_DEVIATION_MM 0.08, INPUT_SHAPING disabled",
+      "recommendedValue": "Keep accel <= ~500-800 and JD ~0.04-0.08 if skipping IS",
+      "howToApply": "Leave DEFAULT_ACCELERATION and JUNCTION_DEVIATION_MM as-is, or lower accel slightly; no firmware feature additions needed.",
+      "sources": [
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/determining_max_speeds_accels.html",
+        "https://github.com/MarlinFirmware/Marlin/issues/26183"
+      ]
+    }
+  ],
+  "imageNeeds": [
+    "Annotated photo of a print corner showing ringing/ghosting echoes fading away from a sharp feature",
+    "Ringing tower print with frequency sweep, smoothest band highlighted and its Z height labeled",
+    "Diagram of ZV input shaping: one impulse split into timed sub-impulses whose vibration echoes cancel",
+    "Screenshot of slicer 'after layer change' G-code field containing the M593 frequency-sweep macro",
+    "Linker build-summary screenshot showing RAM/flash usage and a 'region RAM overflowed' message for context on F103 limits"
+  ]
+}

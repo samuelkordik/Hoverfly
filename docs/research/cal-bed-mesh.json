@@ -1,0 +1,91 @@
+{
+  "topic": "Bed Leveling / Mesh Tuning (G29 Bilinear)",
+  "summary": "Hoverfly runs AUTO_BED_LEVELING_BILINEAR with a 4x4 grid, CRTouch in BLTOUCH mode, RESTORE_LEVELING_AFTER_G28, PREHEAT_BEFORE_LEVELING (nozzle 120C / bed 50C), MULTIPLE_PROBING 2, and ENABLE_LEVELING_FADE_HEIGHT 10mm. The mesh foundation is sound. The single biggest conceptual gap is that mesh (G29) is a software correction layer that sits on top of the physical bed — it does NOT replace manual tramming, and the config currently provides no workflow guidance for that. Because PROBING_MARGIN is 50mm on a 210x210 firmware bed, the actual probeable window is only ~110x110mm (X/Y roughly 50-160mm), so the 4x4 grid already has ~37mm point spacing. Moving to 5x5 tightens that to ~27mm and is a low-cost, worthwhile bump (community consensus calls 5x5 the practical sweet spot for a 220-class bed). Mesh validation is currently impossible because G26_MESH_VALIDATION is commented out and M48 repeatability testing has never been documented as run. PREHEAT_BEFORE_LEVELING is enabled, which is correct, but the 50C bed / 120C nozzle preheat temps do not match real PLA/PETG printing bed temps, so the mesh is captured at a different thermal state than printing — a partial fix at best.\n\nKEY FINDINGS:\n1) Manual tramming first: ABL/mesh compensates for minor warp (tenths of a mm) but not gross tilt. The bed knobs must be trammed flat before relying on G29, and a fresh mesh re-run after every tramming session. No tramming procedure is currently in the workflow.\n2) 4x4 -> 5x5: cheap accuracy gain on the SKR Mini E3 V2 (32-bit STM32, ample RAM/CPU, unlike the 8-bit warning in Marlin docs). 5x5 = 25 points vs 16; with MULTIPLE_PROBING 2 that is 50 vs 32 probe touches, a modest time cost.\n3) PREHEAT temps mismatch: LEVELING_BED_TEMP 50 is below typical 60C PLA / 70-80C PETG bed temps. Aluminum beds warp differently hot vs cold; ideally probe at the actual print bed temp. Best practice is to run G29 in start-gcode after the bed reaches print temp, or raise LEVELING_BED_TEMP to match the most-used filament.\n4) Mesh validation has no tooling enabled. Enable G26_MESH_VALIDATION and run M48 to quantify probe repeatability (CRTouch should land roughly <0.01-0.02mm std dev; >0.05mm indicates probe/mount/heat problems).\n5) DUAL-Z DISCREPANCY (must surface): README lists \"Dual Z-axis\" as a mod, but Z2_DRIVER_TYPE is commented out in Configuration.h (line 171) — firmware is single-Z. The SKR Mini E3 V2.0 has only 4 soldered TMC2209 drivers (X/Y/Z/E) with NO spare socket, so a true independent second Z driver is physically impossible without a different board or an external driver on an expansion header. Therefore any second Z motor is almost certainly wired in SERIES to the single Z driver. That is mechanically fine but means G34 Z_STEPPER_AUTO_ALIGN (which requires two independent drivers / Z2_DRIVER_TYPE) is NOT available, and any Z-gantry tilt must be corrected manually. The mesh will paper over a small amount of resulting gantry sag, but it cannot auto-square the dual lead screws.",
+  "stlModel": "A first-layer / single-layer bed-square test pattern (e.g. a 200x200 single-layer skirt or the G26 mesh validation pattern). For grid validation, a multi-square first-layer patch test (one solid square in each bed corner + center) is ideal.",
+  "procedure": "MANUAL TRAMMING (do this BEFORE trusting any mesh, and after any bed/spring/leadscrew change):\n1. Heat bed to your normal print temp (e.g. 60C PLA) and let it soak 10 min. Heat nozzle to ~150C (soft enough to clean, not oozing) and wipe the nozzle.\n2. Disable leveling: send M420 S0. Home: G28. Move Z to 0 (G0 Z0 F300) or use the LCD Bed Tramming / corner-leveling menu (BED_TRAMMING_LEVELING_ORDER {LF,RF,RB,LB} is already configured).\n3. At each of the 4 corners (inset ~30mm from edges), adjust the bed knob until a sheet of standard 80gsm paper has light, consistent drag. Repeat the corner circuit 2-3 times because corners interact.\n4. Check center vs corners; if center bulges/dips relative to corners, that is warp (leave it for the mesh) but a consistent one-side-low pattern is tilt (keep tramming).\nPASS: paper drag feels identical at all four corners on the final pass, with no corner needing more than ~1/4 turn of correction. FAIL: any corner still needs large turns, or knobs are at end of travel -> mechanical issue (bent bed, bad springs, gantry not square).\n\nDUAL LEAD-SCREW SQUARING (since G34 is unavailable on series-wired single driver):\n1. Power off steppers (M84) or with motors disabled, manually turn BOTH lead screws to drive the X-gantry up to a hard reference (top frame) so both ends meet the top at the same time; or measure gantry-to-bed at both ends with calipers and turn one screw until equal.\n2. Re-home and re-run the mesh afterward. Repeat if you ever hear the gantry bind or see one side lag.\nPASS: left/right gantry height equal within ~0.2mm. FAIL: persistent tilt that returns after homing.\n\nPROBE REPEATABILITY (M48):\n1. Heat bed+nozzle to print temps, soak 10 min. Send M48 P10 (10 samples at bed center).\n2. Read the reported standard deviation.\nPASS: std dev < ~0.02mm (CRTouch typical is ~0.005-0.02mm). MARGINAL: 0.02-0.05mm. FAIL: > 0.05mm or rising sample-to-sample -> probe overheating/EMI/loose mount; add heat shield, reseat wiring, re-run cold to compare.\n\nMESH CAPTURE + VALIDATION:\n1. Manual tram + square gantry first (above). 2. Heat to actual print temps and soak. 3. G28 then G29 to build the mesh. 4. M500 to save. 5. With G26_MESH_VALIDATION enabled, run G26 to print a single-layer pattern across the whole bed (set B and H to your print temps). Inspect for uniform line width/adhesion everywhere.\nPASS: first-layer lines uniform and well-adhered across the entire bed with no gaps (under-extrusion = nozzle too high there) or smearing (too low). FAIL: corners differ from center -> re-tram or increase grid points; localized bad spot -> physical bed defect.\n z-offset note: mesh fixes shape, not absolute height — set Z-offset separately (M851 / babystep). DOUBLECLICK_FOR_Z_BABYSTEPPING is enabled for live tuning during the first layer.",
+  "recommendations": [
+    {
+      "title": "Tram the bed physically before relying on the mesh, every time hardware changes",
+      "priority": "High",
+      "rationale": "G29 bilinear is a software correction layer; it reliably compensates only small warp (a few tenths of a mm). Gross tilt (e.g. one side 1-2mm low) exceeds what the mesh can fix gracefully, wastes Z compensation range, and produces visible boundary transitions. Manual tramming establishes the mechanical baseline the mesh refines. This is the single most impactful first-layer improvement and currently has no documented workflow.",
+      "currentValue": "No documented tramming step; mesh treated as standalone",
+      "recommendedValue": "Manual 4-corner tram (paper drag) at print temp, then re-run G29; repeat after any bed/spring/leadscrew/probe change",
+      "howToApply": "Use the existing LCD Bed Tramming menu (BED_TRAMMING_LEVELING_ORDER {LF,RF,RB,LB} already set); M420 S0, G28, level corners to even paper drag, then G28 + G29 + M500",
+      "sources": [
+        "https://maktraequipments.com/blogs/3d-printer/auto-bed-leveling-vs-manual-bed-leveling",
+        "https://www.snapmaker.com/blog/3d-printer-bed-leveling/",
+        "https://spoolhound.com/first-layer-guide"
+      ]
+    },
+    {
+      "title": "Surface and resolve the Dual-Z firmware/hardware discrepancy",
+      "priority": "High",
+      "rationale": "README lists Dual Z-axis as a mod, but Z2_DRIVER_TYPE is commented out (Configuration.h line 171) so the firmware drives a single Z. The SKR Mini E3 V2.0 has only 4 soldered TMC2209 drivers (X/Y/Z/E) and no spare socket, so a second independent Z driver is physically impossible on this board. Any second Z motor is therefore wired in SERIES on the one Z driver. Consequence: G34 Z_STEPPER_AUTO_ALIGN (requires two independent drivers) is unavailable, dual lead screws cannot auto-square, and gantry tilt must be corrected manually. The mesh hides only a little of any resulting sag.",
+      "currentValue": "README: Dual Z-axis mod; firmware: Z2_DRIVER_TYPE commented out (single-Z), board has no 5th driver",
+      "recommendedValue": "Confirm wiring: either (a) accept series-wired dual Z + manual gantry squaring (no G34), or (b) add an external/expansion driver or change boards to get true independent Z + G34",
+      "howToApply": "Inspect the Z motor wiring at the board. If series: keep Z2_DRIVER_TYPE disabled, document 'series dual Z, no G34, square gantry manually'. If you want G34: requires a 2nd independent driver (not available on SKR Mini E3 V2 stock) -> external driver via expansion header or different board, then #define Z2_DRIVER_TYPE TMC2209 and enable Z_STEPPER_AUTO_ALIGN",
+      "sources": [
+        "https://github.com/bigtreetech/BIGTREETECH-SKR-mini-E3/issues/325",
+        "https://marlinfw.org/docs/gcode/G034-zsaa.html",
+        "https://wiki.layerfused.com/en/printers/mods/unknown/dual-z-axis"
+      ]
+    },
+    {
+      "title": "Probe the mesh at actual print bed temperature, not 50C",
+      "priority": "High",
+      "rationale": "Aluminum beds warp differently when hot; a mesh captured at 50C bed misses much of the warp present at a 60C (PLA) or 70-80C (PETG) printing temperature. PREHEAT_BEFORE_LEVELING is correctly enabled, but LEVELING_BED_TEMP 50 is below real print temps, so the mesh is taken in the wrong thermal state.",
+      "currentValue": "LEVELING_BED_TEMP 50, LEVELING_NOZZLE_TEMP 120 (Configuration.h ~line 1935-1936)",
+      "recommendedValue": "Raise LEVELING_BED_TEMP to your most-used print bed temp (e.g. 60), OR run G29 in slicer start-gcode after the bed reaches print temp + a soak delay",
+      "howToApply": "Edit Configuration.h: #define LEVELING_BED_TEMP 60. Better: in Orca/slicer start-gcode after M190 S[bed_temp], add G4 S300 (soak) then G28, G29, M500/M420 S1",
+      "sources": [
+        "https://blog.uavmodel.com/bltouch-vs-cr-touch-auto-bed-leveling-installation-and-mesh-calibration-2026/",
+        "https://marlinfw.org/docs/features/auto_bed_leveling.html"
+      ]
+    },
+    {
+      "title": "Increase grid from 4x4 to 5x5",
+      "priority": "Medium",
+      "rationale": "With PROBING_MARGIN 50 on a 210mm firmware bed the probeable window is only ~110x110mm, so a 4x4 grid already has ~37mm point spacing. 5x5 tightens to ~27mm and is the community-accepted sweet spot for 220-class beds, capturing more of the center bulge/edge dip. The SKR Mini E3 V2 is a 32-bit STM32 with ample resources, so the 8-bit-board memory caution in Marlin docs does not apply. Cost is modest: 25 points vs 16 (with MULTIPLE_PROBING 2, 50 vs 32 touches).",
+      "currentValue": "GRID_MAX_POINTS_X 4 (Configuration.h line 1998)",
+      "recommendedValue": "GRID_MAX_POINTS_X 5",
+      "howToApply": "Configuration.h: #define GRID_MAX_POINTS_X 5 (Y already follows X). Re-flash, then G28/G29/M500.",
+      "sources": [
+        "https://forum.bambulab.com/t/choices-for-bed-levelling-mesh-resolution-3x3-5x5-9x9-15x15-etc/6423",
+        "https://marlinfw.org/docs/features/auto_bed_leveling.html",
+        "https://ozfdm.com.au/blogs/knowledge-base-blogs-knowledge-base/advanced-mesh-bed-levelling-in-klipper"
+      ]
+    },
+    {
+      "title": "Enable mesh validation tooling (G26) and run M48 repeatability",
+      "priority": "Medium",
+      "rationale": "There is currently no way to validate the mesh quality. G26_MESH_VALIDATION is commented out, and probe repeatability (M48) has never been documented. M48 quantifies whether the CRTouch is trustworthy at temperature (target std dev <0.02mm; >0.05mm signals overheating/EMI/loose mount). G26 prints a single-layer pattern across the whole bed to visually confirm the mesh produces a uniform first layer.",
+      "currentValue": "G26_MESH_VALIDATION commented out (Configuration.h line 1982); M48 available but undocumented in workflow",
+      "recommendedValue": "Enable G26_MESH_VALIDATION; routinely run M48 P10 after probe/mount changes",
+      "howToApply": "Configuration.h: uncomment #define G26_MESH_VALIDATION (set MESH_TEST_BED_TEMP/HOTEND_TEMP to your filament). Then test: M48 P10 at center; build mesh; G26 B60 H205 to print the validation pattern.",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/M048.html",
+        "https://github.com/MarlinFirmware/Marlin/issues/19358",
+        "https://blog.uavmodel.com/bltouch-vs-cr-touch-auto-bed-leveling-installation-and-mesh-calibration-2026/"
+      ]
+    },
+    {
+      "title": "Confirm mesh is actually loaded for prints (M420 S1) and keep fade height",
+      "priority": "Medium",
+      "rationale": "RESTORE_LEVELING_AFTER_G28 re-enables the stored mesh after homing, which is good, but if any start-gcode issues a bare G28 without confirming leveling state, prints can run unleveled. Explicitly loading the saved mesh with M420 S1 (or running a fresh G29) in start-gcode removes ambiguity. ENABLE_LEVELING_FADE_HEIGHT 10mm is a sensible default — it phases out correction by 10mm so upper layers follow true machine planes; keep it.",
+      "currentValue": "RESTORE_LEVELING_AFTER_G28 enabled; DEFAULT_LEVELING_FADE_HEIGHT 10.0 (line 1968); no documented M420 S1 in start-gcode",
+      "recommendedValue": "Add M420 S1 (or G29) to slicer start-gcode after G28; keep fade height at 10mm",
+      "howToApply": "Orca start-gcode: after G28 add M420 S1 (loads EEPROM mesh) or G29 (fresh probe). Verify with M420 V to print the active mesh.",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/G029-abl-bilinear.html",
+        "https://github.com/Jyers/Marlin/wiki/Primary-Features"
+      ]
+    }
+  ],
+  "imageNeeds": [
+    "Diagram of a 210x210 bed showing the ~110x110mm probeable area after a 50mm PROBING_MARGIN, with 4x4 vs 5x5 probe-point overlays and the X-30/Y-40 probe offset",
+    "Photo/diagram of manual 4-corner tramming with the paper-drag method and bed adjustment knobs",
+    "Annotated wiring comparison: dual Z motors in series on one driver (SKR Mini E3 V2) vs two independent drivers required for G34",
+    "Example G26 mesh validation single-layer print: good uniform pattern vs nozzle-too-high (gaps) and nozzle-too-low (smear)",
+    "Sample M48 serial output highlighting the standard-deviation line with pass/marginal/fail thresholds"
+  ]
+}

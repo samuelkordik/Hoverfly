@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hoverfly — Marlin Firmware Review</title>
+<style>
+  :root{--bg:#0f1115;--card:#171a21;--ink:#e7e9ee;--mut:#9aa3b2;--line:#262b36;
+        --hi:#ff5d5d;--med:#ffb020;--lo:#4cc38a;--acc:#5aa2ff;--code:#0b0d11;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:48px 24px 28px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#12151c,#0f1115)}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  h1{font-size:30px;margin:0 0 6px}
+  h2{font-size:22px;margin:40px 0 12px;padding-top:10px;border-top:1px solid var(--line)}
+  h3{font-size:18px;margin:26px 0 8px}
+  .sub{color:var(--mut);margin:0}
+  a{color:var(--acc)}
+  code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:.88em;color:#cfe3ff}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow:auto}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:#1b1f28;color:#cdd4e0}
+  tr:nth-child(even) td{background:#141821}
+  .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.4px;
+        padding:2px 8px;border-radius:999px;color:#0b0d11}
+  .pill.hi{background:var(--hi)} .pill.med{background:var(--med)} .pill.lo{background:var(--lo)}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .note{border-left:4px solid var(--acc);background:#121a26;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .warn{border-left:4px solid var(--med);background:#221c10;padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0}
+  .toc{columns:2;gap:24px;font-size:14.5px}
+  .toc a{display:block;padding:3px 0;color:#bcd0ee;text-decoration:none}
+  footer{border-top:1px solid var(--line);margin-top:48px;padding:24px;color:var(--mut);font-size:13px;text-align:center}
+  .kv{color:var(--mut)} .ok{color:var(--lo)} .bad{color:var(--hi)}
+  @media (max-width:680px){.toc{columns:1}}
+  .fig{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0}
+  .fig figure{flex:1 1 240px;margin:0}
+  figure{margin:16px 0}
+  figure svg{width:100%;height:auto;background:var(--code);border:1px solid var(--line);border-radius:10px;display:block}
+  figcaption{color:var(--mut);font-size:13px;margin-top:6px;line-height:1.45}
+  @media (max-width:560px){.fig{flex-direction:column}}
+  @media print{body{background:#fff;color:#000}.card,.note,.warn{border-color:#bbb}
+    pre,code{background:#f4f4f4;color:#000}th{background:#eee;color:#000}a{color:#0645ad}
+    figure svg{background:#fff;border-color:#bbb}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>Hoverfly — Marlin Firmware Review</h1>
+  <p class="sub">Prioritized configuration recommendations for a Creality Ender 3 Pro with
+  SKR Mini E3 V2.0 · Sprite Extruder Pro (direct drive) · CRTouch · TMC2209</p>
+</div></header>
+
+<main class="wrap">
+
+<div class="note">
+  This is a <strong>review only</strong> — no firmware files were modified. Each item lists the
+  current value, the recommendation, and exactly how to apply it (a <code>#define</code> edit,
+  and/or a live <code>M</code>-code). Many motion/temperature items should be confirmed against the
+  <a href="../../Calibration_Guide/index.html">Calibration&nbsp;Guide</a> before you commit numbers.
+</div>
+
+<h2 id="toc">Contents</h2>
+<div class="toc card">
+  <a href="#summary">Summary &amp; priority table</a>
+  <a href="#dualz">1. Dual-Z discrepancy (verify wiring)</a>
+  <a href="#linadv">2. Linear Advance K is untuned (0.0)</a>
+  <a href="#babystep">3. Enable BABYSTEP_ZPROBE_OFFSET</a>
+  <a href="#bedpid">4. Bed temperature: bang-bang vs PID</a>
+  <a href="#margin">5. PROBING_MARGIN is very large (50&nbsp;mm)</a>
+  <a href="#grid">6. Bed mesh density (4×4 → 5×5)</a>
+  <a href="#shaping">7. Input Shaping on an STM32F103</a>
+  <a href="#motion">8. Motion limits, junction deviation, S-curve</a>
+  <a href="#misc">9. Smaller items &amp; QoL</a>
+  <a href="#apply">How to apply &amp; save changes</a>
+  <a href="#sources">Sources</a>
+</div>
+
+<h2 id="summary">Summary &amp; priority table</h2>
+<p>The configuration is already a solid, sane Ender-3-Pro-on-SKR-Mini-E3 setup: TMC2209 UART,
+junction deviation, S-curve, thermal protection, EEPROM, ABL bilinear, and E-steps already
+calibrated for the Sprite (<code>423</code>). The highest-value gaps are <strong>an untuned Linear
+Advance</strong> and <strong>a wiring/documentation question on "dual Z"</strong>. Everything else
+is incremental.</p>
+
+<table>
+  <thead><tr><th>#</th><th>Area</th><th>Current</th><th>Recommended</th><th>Priority</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Dual-Z config vs README</td><td><code>Z2_DRIVER_TYPE</code> commented (single driver)</td><td>Confirm motors are series-wired to one driver; fix README wording</td><td><span class="pill hi">HIGH</span></td></tr>
+    <tr><td>2</td><td>Linear Advance</td><td><code>LIN_ADVANCE</code> on, <code>ADVANCE_K 0.0</code></td><td>Calibrate K (≈0.02–0.10 for Sprite direct drive)</td><td><span class="pill hi">HIGH</span></td></tr>
+    <tr><td>2b</td><td>S-curve × Linear Advance (<a href="#linadv">§2</a>)</td><td><code>S_CURVE_ACCELERATION</code> + <code>LIN_ADVANCE</code> both on</td><td>Disable <code>S_CURVE_ACCELERATION</code> — Marlin flags the pair incompatible</td><td><span class="pill hi">HIGH</span></td></tr>
+    <tr><td>3</td><td>Live Z-offset</td><td><code>BABYSTEP_ZPROBE_OFFSET</code> off</td><td>Enable so babysteps adjust &amp; save probe Z-offset</td><td><span class="pill med">MED</span></td></tr>
+    <tr><td>4</td><td>Bed heating</td><td>bang-bang (<code>PIDTEMPBED</code> off)</td><td>Optional: enable bed PID + autotune for tighter temp</td><td><span class="pill med">MED</span></td></tr>
+    <tr><td>5</td><td>Probe coverage</td><td><code>PROBING_MARGIN 50</code></td><td>Reduce to ~20–30 mm to mesh more of the bed</td><td><span class="pill med">MED</span></td></tr>
+    <tr><td>6</td><td>Mesh density</td><td>4×4 grid</td><td>5×5 for a 210 mm bed</td><td><span class="pill lo">LOW</span></td></tr>
+    <tr><td>7</td><td>Input Shaping</td><td>disabled</td><td>Try Marlin IS; fall back to slicer/Klipper if it won't fit</td><td><span class="pill med">MED</span></td></tr>
+    <tr><td>8</td><td>Motion limits / JD</td><td>accel 500, JD 0.08</td><td>Keep; tune via calibration, raise cautiously</td><td><span class="pill lo">LOW</span></td></tr>
+    <tr><td>9</td><td>QoL (PLR, probe heaters-off, etc.)</td><td>mostly off</td><td>Optional, see §9</td><td><span class="pill lo">LOW</span></td></tr>
+  </tbody>
+</table>
+
+<h2 id="dualz">1. Dual-Z discrepancy — verify how the second motor is wired <span class="pill hi">HIGH</span></h2>
+<p>The repo README lists <strong>“Dual Z-axis”</strong> as a modification, but the firmware has
+<code>Z2_DRIVER_TYPE</code> commented out — Marlin is configured for a <strong>single</strong> Z
+driver. These are not necessarily in conflict:</p>
+<ul>
+  <li>The <strong>SKR Mini E3 V2.0 has only four onboard drivers</strong> (X, Y, Z, E0) and no
+  spare driver socket. The standard “dual Z” on this board is <strong>two Z motors wired to the one
+  Z driver</strong> (a Y-splitter / series cable). In that case the current single-driver firmware
+  is <em>correct</em> — there is nothing to enable.</li>
+  <li>A <em>true</em> independent second Z driver would require moving E0 or adding an external
+  driver (e.g. via the UART/expansion header), which this build does not do.</li>
+</ul>
+<div class="warn"><strong>Action:</strong> confirm your wiring. If both Z motors run off the single Z
+port (almost certainly the case here), leave the firmware as-is and update the README to say
+<em>“Dual Z motors (series-wired to the single Z driver)”</em>. Note the trade-off: with one driver
+you <strong>cannot</strong> use <code>Z_STEPPER_AUTO_ALIGN</code> (independent gantry leveling, <code>G34</code>) —
+gantry squaring stays manual. If you ever want auto-align, you need a second driver.</p></div>
+<figure>
+  <svg viewBox="0 0 600 220" role="img" aria-label="SKR Mini E3 V2.0 has four drivers; both Z motors share the single Z driver">
+    <rect x="24" y="46" width="250" height="120" rx="8" fill="#141821" stroke="#5aa2ff"/>
+    <text x="149" y="36" fill="#9aa3b2" font-size="12" text-anchor="middle">SKR Mini E3 V2.0 — 4 onboard drivers</text>
+    <g font-size="13" text-anchor="middle">
+      <rect x="44" y="74" width="44" height="36" rx="5" fill="#1b1f28" stroke="#262b36"/><text x="66" y="97" fill="#e7e9ee">X</text>
+      <rect x="98" y="74" width="44" height="36" rx="5" fill="#1b1f28" stroke="#262b36"/><text x="120" y="97" fill="#e7e9ee">Y</text>
+      <rect x="152" y="74" width="44" height="36" rx="5" fill="#1b1f28" stroke="#4cc38a"/><text x="174" y="97" fill="#4cc38a">Z</text>
+      <rect x="206" y="74" width="44" height="36" rx="5" fill="#1b1f28" stroke="#262b36"/><text x="228" y="97" fill="#e7e9ee">E0</text>
+    </g>
+    <text x="149" y="150" fill="#9aa3b2" font-size="11" text-anchor="middle">no 5th driver socket</text>
+    <path d="M174 110 L174 192 L440 192 L440 120" fill="none" stroke="#4cc38a" stroke-width="2"/>
+    <path d="M174 192 L530 192 L530 120" fill="none" stroke="#4cc38a" stroke-width="2"/>
+    <text x="330" y="184" fill="#9aa3b2" font-size="11" text-anchor="middle">series / Y-splitter cable</text>
+    <g text-anchor="middle">
+      <circle cx="440" cy="96" r="24" fill="#1b1f28" stroke="#4cc38a"/><text x="440" y="100" fill="#e7e9ee" font-size="12">Z-L</text>
+      <circle cx="530" cy="96" r="24" fill="#1b1f28" stroke="#4cc38a"/><text x="530" y="100" fill="#e7e9ee" font-size="12">Z-R</text>
+    </g>
+    <text x="485" y="56" fill="#9aa3b2" font-size="12" text-anchor="middle">two Z motors</text>
+  </svg>
+  <figcaption>This build's "dual&nbsp;Z": both motors run off the <strong>single</strong> Z driver (series-wired), so the single-Z firmware is correct. A true independent second Z would need a 5th driver — hence the <code>Z_STEPPER_AUTO_ALIGN</code> trade-off above.</figcaption>
+</figure>
+
+<h2 id="linadv">2. Linear Advance K is enabled but set to 0.0 <span class="pill hi">HIGH</span></h2>
+<p><code>LIN_ADVANCE</code> is compiled in, but <code>ADVANCE_K 0.0</code> means it does nothing.
+Linear Advance pays off most on a <strong>light direct-drive</strong> setup like the Sprite Pro: it
+pressure-compensates the extruder so corners, line starts/stops and seams stay crisp instead of
+bulging. The default 0.0 leaves that on the table.</p>
+<div class="warn"><strong>Fix this first — latent conflict:</strong> <code>S_CURVE_ACCELERATION</code> and
+<code>LIN_ADVANCE</code> are <strong>both enabled</strong>, a combination Marlin's own sanity check
+rejects (it <code>#error</code>s) unless you force <code>EXPERIMENTAL_SCURVE</code>. The pairing is
+known-buggy: S-curve's Bézier acceleration profile breaks Linear Advance's pressure-timing
+prediction, causing over/under-extrusion at accel/decel edges (worst at high speed + low accel). If
+your build currently compiles, <code>EXPERIMENTAL_SCURVE</code> is masking the guard — don't rely on
+it. <strong>Comment out <code>S_CURVE_ACCELERATION</code></strong> so Linear Advance times correctly;
+junction deviation already does the corner-smoothing S-curve was there for.
+<pre><code>// Configuration.h
+//#define S_CURVE_ACCELERATION   // disabled: incompatible with LIN_ADVANCE</code></pre>
+Refs: <a href="https://github.com/MarlinFirmware/Marlin/issues/22547">Marlin #22547</a>,
+<a href="https://github.com/MarlinFirmware/Marlin/issues/14728">#14728</a>.</div>
+<p><strong>Recommended:</strong> calibrate K. Direct-drive PLA on a Sprite typically lands around
+<code>0.02–0.10</code> (much lower than Bowden’s ~0.4–0.8). Don’t guess — measure it:</p>
+<ul>
+  <li>Use Marlin’s K-factor test pattern, or (easier) the <strong>Orca Slicer “Pressure advance”</strong>
+  calibration test — see the <a href="../../Calibration_Guide/index.html#retraction-pa">Calibration Guide §6</a>.</li>
+</ul>
+<p><strong>How to apply (live, no reflash):</strong></p>
+<pre><code>M900 K0.04      ; set Linear Advance K (use your measured value)
+M500            ; save to EEPROM
+M900            ; report current K</code></pre>
+<p>To bake the default into firmware instead, set in <code>Configuration_adv.h</code>:
+<code>#define ADVANCE_K 0.04</code>.</p>
+<div class="note">If you also run pressure advance in the slicer, pick <strong>one</strong> — don’t
+apply both. Either tune Marlin <code>M900 K</code> and leave slicer PA off, or disable
+<code>LIN_ADVANCE</code> influence and let Orca do it. Tuning it in firmware is the more portable choice.</div>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 130" role="img" aria-label="Corner without Linear Advance bulges">
+      <path d="M45 100 L45 48 Q45 38 55 38 L170 38" fill="none" stroke="#ff5d5d" stroke-width="7" stroke-linecap="round"/>
+      <circle cx="52" cy="45" r="11" fill="#ff5d5d" opacity="0.45"/>
+      <text x="110" y="122" fill="#9aa3b2" font-size="11" text-anchor="middle">K = 0.0 (current)</text>
+    </svg>
+    <figcaption><span class="bad">Without LA:</span> extruder pressure overshoots into the corner → blob / bulge and uneven line starts.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 130" role="img" aria-label="Corner with tuned Linear Advance is crisp">
+      <path d="M45 100 L45 42 L170 42" fill="none" stroke="#4cc38a" stroke-width="7" stroke-linecap="round" stroke-linejoin="miter"/>
+      <text x="110" y="122" fill="#9aa3b2" font-size="11" text-anchor="middle">K ≈ 0.04 (tuned)</text>
+    </svg>
+    <figcaption><span class="ok">Tuned K:</span> pressure is compensated → sharp corners and even perimeter starts/stops.</figcaption>
+  </figure>
+</div>
+
+<h2 id="babystep">3. Enable BABYSTEP_ZPROBE_OFFSET <span class="pill med">MED</span></h2>
+<p>Babystepping is enabled (with double-click entry), which is great, but
+<code>BABYSTEP_ZPROBE_OFFSET</code> is off. With it <em>on</em>, the live Z babysteps you make during
+the first layer directly adjust the <strong>probe Z-offset</strong>, so you can dial the first layer
+by feel and then <code>M500</code> to make it permanent — exactly the workflow you want with a CRTouch.</p>
+<pre><code>// Configuration_adv.h
+#define BABYSTEP_ZPROBE_OFFSET</code></pre>
+<p>After flashing, adjust during a print (double-click the wheel → Z babystep), then save with
+<code>M500</code>. See <a href="../../Calibration_Guide/index.html#zoffset">Calibration Guide §4</a>.</p>
+
+<h2 id="bedpid">4. Bed temperature: bang-bang vs PID <span class="pill med">MED</span></h2>
+<p><code>PIDTEMPBED</code> is disabled, so the bed uses bang-bang (full-on/full-off) control. For PLA
+this is genuinely fine and reduces MOSFET cycling. Enable bed PID only if you want tighter bed-temp
+stability (e.g. for finicky first layers or PETP later). If you enable it, <strong>autotune</strong>
+rather than trusting the fallback constants:</p>
+<pre><code>// Configuration.h — then rebuild
+#define PIDTEMPBED</code></pre>
+<pre><code>; live autotune (no reflash needed to test):
+M303 E-1 S60 C8 U1   ; bed (E-1), 60C target, 8 cycles, apply result
+M500                 ; save</code></pre>
+<p><strong>Recommendation:</strong> leave bang-bang for now; revisit only if bed temp wanders.</p>
+
+<h2 id="margin">5. PROBING_MARGIN is very large (50 mm) <span class="pill med">MED</span></h2>
+<p>With <code>X/Y_BED_SIZE 210</code> and <code>PROBING_MARGIN 50</code>, the mesh only samples the
+central <strong>~110 × 110 mm</strong> of the bed — the outer ~50 mm ring is never probed and is
+extrapolated. Combined with the large probe offset (<code>{-30,-40}</code>) this was likely chosen to
+keep the probe physically on the bed, but 50 mm is conservative. Reducing it meshes more of your
+actual print area.</p>
+<pre><code>#define PROBING_MARGIN 25   // was 50 — verify the probe still lands on the bed at the corners</code></pre>
+<div class="warn">After lowering it, run <code>G29</code> and watch the first/last points: the
+<em>nozzle</em> can reach the bed edge, but the <em>probe</em> sits 30 mm left and 40 mm in front, so
+the usable margin is limited by the probe, not the nozzle. If the probe tries to deploy off the bed,
+raise the margin back up.</div>
+
+<h2 id="grid">6. Bed mesh density 4×4 → 5×5 <span class="pill lo">LOW</span></h2>
+<p>A 4×4 grid is coarse for a 210 mm bed. <code>5×5</code> (25 points) better captures a warped or
+crowned bed with little added probe time. Bilinear interpolation between denser points = a more
+accurate first layer.</p>
+<pre><code>#define GRID_MAX_POINTS_X 5   // GRID_MAX_POINTS_Y inherits this</code></pre>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 170 180" role="img" aria-label="4 by 4 probe grid, 16 points">
+      <rect x="10" y="10" width="150" height="150" rx="6" fill="#141821" stroke="#262b36"/>
+      <g fill="#9aa3b2">
+        <circle cx="30" cy="30" r="4.5"/><circle cx="67" cy="30" r="4.5"/><circle cx="103" cy="30" r="4.5"/><circle cx="140" cy="30" r="4.5"/>
+        <circle cx="30" cy="67" r="4.5"/><circle cx="67" cy="67" r="4.5"/><circle cx="103" cy="67" r="4.5"/><circle cx="140" cy="67" r="4.5"/>
+        <circle cx="30" cy="103" r="4.5"/><circle cx="67" cy="103" r="4.5"/><circle cx="103" cy="103" r="4.5"/><circle cx="140" cy="103" r="4.5"/>
+        <circle cx="30" cy="140" r="4.5"/><circle cx="67" cy="140" r="4.5"/><circle cx="103" cy="140" r="4.5"/><circle cx="140" cy="140" r="4.5"/>
+      </g>
+      <text x="85" y="176" fill="#9aa3b2" font-size="11" text-anchor="middle">4×4 — 16 points (current)</text>
+    </svg>
+    <figcaption>Coarser: the bilinear mesh interpolates across wider gaps, so local warp between points is smoothed over.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 170 180" role="img" aria-label="5 by 5 probe grid, 25 points">
+      <rect x="10" y="10" width="150" height="150" rx="6" fill="#141821" stroke="#262b36"/>
+      <g fill="#4cc38a">
+        <circle cx="30" cy="30" r="4.5"/><circle cx="58" cy="30" r="4.5"/><circle cx="85" cy="30" r="4.5"/><circle cx="112" cy="30" r="4.5"/><circle cx="140" cy="30" r="4.5"/>
+        <circle cx="30" cy="58" r="4.5"/><circle cx="58" cy="58" r="4.5"/><circle cx="85" cy="58" r="4.5"/><circle cx="112" cy="58" r="4.5"/><circle cx="140" cy="58" r="4.5"/>
+        <circle cx="30" cy="85" r="4.5"/><circle cx="58" cy="85" r="4.5"/><circle cx="85" cy="85" r="4.5"/><circle cx="112" cy="85" r="4.5"/><circle cx="140" cy="85" r="4.5"/>
+        <circle cx="30" cy="112" r="4.5"/><circle cx="58" cy="112" r="4.5"/><circle cx="85" cy="112" r="4.5"/><circle cx="112" cy="112" r="4.5"/><circle cx="140" cy="112" r="4.5"/>
+        <circle cx="30" cy="140" r="4.5"/><circle cx="58" cy="140" r="4.5"/><circle cx="85" cy="140" r="4.5"/><circle cx="112" cy="140" r="4.5"/><circle cx="140" cy="140" r="4.5"/>
+      </g>
+      <text x="85" y="176" fill="#9aa3b2" font-size="11" text-anchor="middle">5×5 — 25 points</text>
+    </svg>
+    <figcaption>Denser: captures a crowned/warped bed more faithfully for little extra probe time.</figcaption>
+  </figure>
+</div>
+
+<div class="warn"><strong>Probe the mesh at print temperature.</strong> <code>PREHEAT_BEFORE_LEVELING</code> is
+on (good), but check <code>LEVELING_BED_TEMP</code> — if it's left at a low preheat default (often
+~50&nbsp;°C) it's <strong>below your ~60&nbsp;°C PLA bed</strong>. An aluminum bed warps differently when
+hot, so a mesh probed cold misses warp that's present while printing. Set it to your usual bed temp, or
+probe fresh in the slicer start G-code after the bed soaks: <code>#define LEVELING_BED_TEMP 60</code> — or <code>M190 S60</code> → <code>G4 S300</code> (soak) →
+<code>G28</code> → <code>G29</code> → <code>M500</code>. Pair with an <code>M48 P10</code> probe-repeatability
+check (target σ&nbsp;&lt;&nbsp;0.02&nbsp;mm). See <a href="../../Calibration_Guide/index.html#bed-mesh">Calibration Guide §9</a>.</div>
+
+<h2 id="shaping">7. Input Shaping on an STM32F103 <span class="pill med">MED</span></h2>
+<p>Input Shaping (<code>INPUT_SHAPING_X/Y</code>) cancels ringing/ghosting and lets you run higher
+acceleration without artifacts — a real quality win. The catch: the SKR Mini E3 V2.0 is an
+<strong>STM32F103 (72 MHz, 20 KB RAM)</strong>. Marlin IS is supported but memory- and CPU-hungry; on
+this MCU the build can overflow or the step rate can be limited.</p>
+<ul>
+  <li><strong>Try it:</strong> enable <code>INPUT_SHAPING_X</code> / <code>INPUT_SHAPING_Y</code>, set
+  the shaper frequencies from a ringing-tower measurement (<a href="../../Calibration_Guide/index.html#shaping">Calibration Guide §8</a>),
+  tune live with <code>M593 X F&lt;freq&gt;</code> / <code>M593 Y F&lt;freq&gt;</code>, then <code>M500</code>.</li>
+  <li><strong>If it won’t fit / build errors on flash overflow:</strong> drop it. The pragmatic
+  alternative on this board is to keep acceleration modest, or move to <strong>Klipper</strong> (where
+  input shaping and resonance measurement are first-class) if ghosting really bothers you.</li>
+</ul>
+<pre><code>// Configuration_adv.h
+#define INPUT_SHAPING_X
+#define INPUT_SHAPING_Y
+// after flashing, live-tune:
+//   M593 X F40 ; M593 Y F38 ; M500   (use YOUR measured frequencies)</code></pre>
+<div class="note"><strong>Making it fit on 48&nbsp;KB SRAM.</strong> IS allocates a step buffer in SRAM that
+grows with steps/mm and feedrate; bound it with <code>SHAPING_MIN_FREQ 20.0</code> (and optionally
+<code>SHAPING_MAX_STEPRATE</code>). After enabling, <strong>build and read the linker summary before
+flashing</strong> — if it reports <em>"region RAM overflowed"</em>, free SRAM (drop unused LCD languages,
+keep <code>SHAPING_MENU</code> off) or abandon IS. This printer is low-risk (≈80&nbsp;steps/mm XY, modest
+accel), but it's a real ceiling on the F103.
+<pre><code>// Configuration_adv.h
+#define SHAPING_MIN_FREQ 20.0   // caps the SRAM step buffer
+// keep //#define SHAPING_MENU commented to save RAM</code></pre>
+Tuning order: measure frequency from the ringing tower → set <code>M593 X F.. Y F..</code>, then tune the
+damping factor <code>M593 X D.. Y D..</code> (zeta, ~0.15 start, step 0.05). <strong>Re-tune Linear
+Advance K <em>after</em> Input Shaping</strong> — the IS sweep runs with LA off, so K is finalized last
+(mechanics → IS → LA K). See <a href="../../Calibration_Guide/index.html#shaping">Calibration Guide §8</a>.</div>
+<div class="fig">
+  <figure>
+    <svg viewBox="0 0 220 130" role="img" aria-label="Wall with ringing echoes after a corner">
+      <path d="M40 110 L40 30 L120 30" fill="none" stroke="#ffb020" stroke-width="2.5"/>
+      <g stroke="#ff5d5d" stroke-width="1.4" opacity="0.85" fill="none">
+        <path d="M120 30 q10 -6 20 0 q10 6 20 0 q10 -6 20 0"/>
+        <path d="M40 50 q-6 10 0 20 q6 10 0 20" transform="translate(0,0)"/>
+      </g>
+      <text x="150" y="122" fill="#9aa3b2" font-size="11" text-anchor="middle">echoes ripple past corners</text>
+    </svg>
+    <figcaption><span class="bad">No shaping:</span> frame resonance imprints ghost ripples after every sharp feature; worse at high accel.</figcaption>
+  </figure>
+  <figure>
+    <svg viewBox="0 0 220 130" role="img" aria-label="Clean wall with input shaping or lower acceleration">
+      <path d="M40 110 L40 30 L180 30" fill="none" stroke="#4cc38a" stroke-width="2.5"/>
+      <text x="150" y="122" fill="#9aa3b2" font-size="11" text-anchor="middle">flat, echo-free walls</text>
+    </svg>
+    <figcaption><span class="ok">Input Shaping (or lower accel):</span> resonance is canceled, so corners stay crisp even when printing fast.</figcaption>
+  </figure>
+</div>
+
+<h2 id="motion">8. Motion limits, junction deviation, S-curve <span class="pill lo">LOW</span></h2>
+<table>
+  <thead><tr><th>Setting</th><th>Current</th><th>Comment</th></tr></thead>
+  <tbody>
+    <tr><td><code>DEFAULT_ACCELERATION</code></td><td>500</td><td>Safe/conservative. The Sprite is light; you can likely raise print accel to 1000–2000 after a ringing test. Tune empirically.</td></tr>
+    <tr><td><code>JUNCTION_DEVIATION_MM</code></td><td>0.08</td><td>Good general value. Lower (0.05) = crisper corners/slower; higher (0.10–0.13) = faster/rounder. Leave at 0.08 unless chasing speed.</td></tr>
+    <tr><td><code>S_CURVE_ACCELERATION</code></td><td>on</td><td><strong>Disable it</strong> — incompatible with <code>LIN_ADVANCE</code> (see <a href="#linadv">§2</a>). Junction deviation already handles corner smoothing.</td></tr>
+    <tr><td><code>DEFAULT_MAX_FEEDRATE</code> Z</td><td>5 mm/s</td><td>Conservative for a dual-Z leadscrew; fine. Don’t raise much.</td></tr>
+    <tr><td><code>DEFAULT_MAX_ACCELERATION</code> E</td><td>5000</td><td>Plenty for direct drive. No change.</td></tr>
+  </tbody>
+</table>
+<p>Raise limits only with a test (see <a href="../../Calibration_Guide/index.html#speed">Calibration Guide §7</a>); the firmware ceiling should be ≥ whatever the slicer asks for.</p>
+<div class="warn"><strong>Gotcha — E max feedrate caps retraction speed.</strong>
+<code>DEFAULT_MAX_FEEDRATE</code> E is <strong>25&nbsp;mm/s</strong>, so any slicer retraction speed above
+25 is <em>silently clamped</em> to 25. The common "40&nbsp;mm/s" retraction (and the older numbers in the
+slicer/calibration guides) never actually happens on this machine. Either set slicer retraction speed to
+<strong>≤25&nbsp;mm/s</strong> to match reality, or raise the E feedrate ceiling
+(<code>M203 E50</code> + <code>M500</code>, or the last value of <code>DEFAULT_MAX_FEEDRATE</code>) if you
+genuinely want faster retracts. A light Sprite direct drive rarely needs more than ~25.</div>
+
+<h2 id="misc">9. Smaller items &amp; quality-of-life <span class="pill lo">LOW</span></h2>
+<ul>
+  <li><strong><code>ALLOW_LOW_EJERK</code></strong> — <code>DEFAULT_EJERK</code> is <code>5.0</code> while
+  <code>LIN_ADVANCE</code> is on. Marlin's sanity check historically blocks E-jerk&nbsp;&lt;&nbsp;10 with
+  Linear Advance unless <code>ALLOW_LOW_EJERK</code> is defined (it exists specifically for light
+  direct-drive extruders). With <code>CLASSIC_JERK</code> disabled you're on junction deviation so the
+  E-jerk path is largely inactive and this may not bite — but if a build ever errors on E-jerk, uncomment
+  <code>ALLOW_LOW_EJERK</code> rather than raising the jerk.</li>
+  <li><strong><code>G26_MESH_VALIDATION</code></strong> — currently commented out. Enable it to print a
+  single-layer pattern across the whole bed (<code>G26</code>) that visually confirms your mesh yields a
+  flat first layer everywhere — the companion to the <code>M48</code> probe-repeatability check.</li>
+  <li><strong><code>PROBING_HEATERS_OFF</code></strong> — turning heaters off during probing reduces
+  electrical noise / PWM interference on the CRTouch signal and can improve mesh repeatability.
+  Optional; enable in <code>Configuration_adv.h</code> if you see noisy probing.</li>
+  <li><strong><code>POWER_LOSS_RECOVERY</code></strong> — off. Nice for long prints on unreliable
+  power, but it adds SD writes and a small first-layer pause. Enable only if you need it.</li>
+  <li><strong>Sensorless homing</strong> — the TMC2209s support StallGuard, but the Ender 3 already
+  has physical X/Y endstops and the SKR Mini E3 V2.0 needs DIAG jumpers. Not worth it here. No change.</li>
+  <li><strong><code>TEMP_SENSOR_0 = 1</code></strong> — generic 100k thermistor. Correct for most
+  Creality/Sprite hotends; if temps read oddly, confirm the Sprite Pro’s thermistor type.</li>
+  <li><strong><code>EDITABLE_STEPS_PER_UNIT</code></strong> — already enabled. Good; lets you tweak
+  steps/mm via <code>M92</code> + <code>M500</code> without reflashing.</li>
+  <li><strong><code>THERMAL_PROTECTION_CHAMBER</code></strong> — enabled though there’s no chamber
+  heater. Harmless; no action.</li>
+</ul>
+
+<h2 id="apply">How to apply &amp; save changes</h2>
+<p>Two paths, depending on whether a setting needs a recompile:</p>
+<table>
+  <thead><tr><th>Path</th><th>Use for</th><th>Steps</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Live M-code</strong></td><td>K-factor, PID, steps/mm, mesh, Z-offset, shaper freq</td>
+      <td>Send the <code>M</code>-code (e.g. <code>M900 K…</code>), test, then <code>M500</code> to persist to EEPROM. <code>M501</code> reloads, <code>M502</code> resets to firmware defaults.</td></tr>
+    <tr><td><strong>Recompile</strong></td><td>Feature toggles: <code>BABYSTEP_ZPROBE_OFFSET</code>, <code>PIDTEMPBED</code>, <code>INPUT_SHAPING_*</code>, <code>GRID_MAX_POINTS</code>, <code>PROBING_MARGIN</code></td>
+      <td>Edit <code>Firmware/Marlin/Configuration*.h</code>, build (PlatformIO), flash <code>firmware.bin</code> via SD card, then re-run calibration and <code>M500</code>.</td></tr>
+  </tbody>
+</table>
+<div class="note">Workflow tip: make <strong>one</strong> firmware change at a time, reflash, verify,
+and <code>M500</code> before moving on — so if something regresses you know which change did it. Keep
+the firmware edits on a branch (as you did for the Sprite e-steps calibration).</div>
+
+<h2 id="sources">Sources</h2>
+<p>This review is grounded in your current <code>Configuration.h</code> / <code>Configuration_adv.h</code>
+values plus established community guidance. Key references:</p>
+<ul>
+  <li>Marlin documentation — Linear Advance, Input Shaping, PID, Bed Leveling, M-code reference: <a href="https://marlinfw.org/docs/">marlinfw.org/docs</a></li>
+  <li>Marlin <code>M900</code> (Linear Advance) &amp; <code>M593</code> (Input Shaping) G-code: <a href="https://marlinfw.org/docs/gcode/M900.html">M900</a>, <a href="https://marlinfw.org/docs/gcode/M593.html">M593</a></li>
+  <li>BIGTREETECH SKR Mini E3 V2.0 hardware (driver count, pinout): <a href="https://github.com/bigtreetech/BIGTREETECH-SKR-mini-E3">BTT GitHub</a></li>
+  <li>Teaching Tech 3D-printer calibration: <a href="https://teachingtechyt.github.io/calibration.html">teachingtechyt.github.io/calibration</a></li>
+  <li>Ellis’ Print Tuning Guide (pressure advance, first layer, motion): <a href="https://ellis3dp.com/Print-Tuning-Guide/">ellis3dp.com/Print-Tuning-Guide</a></li>
+</ul>
+
+</main>
+<footer>
+  Hoverfly firmware review · review only, no config modified ·
+  <a href="../../README.md">README</a> ·
+  <a href="../../Orca_Slicer/index.html">Orca guide</a> ·
+  <a href="../../Calibration_Guide/index.html">Calibration guide</a> ·
+  <a href="https://github.com/samuelkordik/Hoverfly">GitHub</a>
+</footer>
+</body>
+</html>

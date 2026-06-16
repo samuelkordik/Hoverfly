@@ -1,0 +1,89 @@
+{
+  "topic": "E-steps / Extrusion Multiplier (Flow) Calibration — Sprite Extruder Pro Direct Drive",
+  "summary": "Two separate but related calibrations. (1) E-STEPS verify firmware-level \"100mm requested = 100mm extruded.\" Current value is DEFAULT_AXIS_STEPS_PER_UNIT { 80, 80, 400, 423 } in /Users/S225608/Documents/dev/Hoverfly/Firmware/Marlin/Configuration.h line 1201, with EDITABLE_STEPS_PER_UNIT enabled (line 1203) so M92 changes are honored and EEPROM_SETTINGS lets M500 persist them. Creality's stock recommendation for the Sprite Extruder Pro (3.5:1 gearing) is 424.9; the configured 423 is only ~0.45% below stock, i.e. already within the practical 1% tolerance — so E-steps are likely fine, and this step is a VERIFICATION rather than a fix. EXTRUDE_MAXLENGTH 600 and DEFAULT_NOMINAL_FILAMENT_DIA 1.75 both support a 100mm test. (2) FLOW / EXTRUSION MULTIPLIER is a per-filament slicer setting tuned after E-steps and (ideally) after Linear Advance. Two valid methods: the classic single-wall caliper method (measure wall, compute EM = target_line_width / measured) and Ellis' preferred top-surface visual method. Note the firmware gap: LIN_ADVANCE is enabled but ADVANCE_K 0.0 (untuned). Tune K before fine flow work because untuned pressure advance bulges single-wall corners and biases caliper readings; the canonical calibration order is E-steps -> Linear Advance -> Flow.",
+  "stlModel": "Single-wall calibration cube — typically a 20-30mm hollow box, 0 top/bottom layers, 0% infill, 1 perimeter (e.g. Teaching Tech / Prusa \"flow test cube\"). For the Ellis visual method instead use a 30x30x3mm solid-top test cube (10-11 top layers).",
+  "procedure": "PART A — VERIFY E-STEPS (100mm extrude test, Marlin):\n1. Connect via Pronterface/OctoPrint terminal. Send M503 and read the M92 line — confirm E423.\n2. Heat the hotend to printing temp (e.g. 200-210C for PLA) so filament feeds without grinding. Never extrude cold.\n3. Send M83 (relative E mode).\n4. With filament loaded, measure UP the filament from the extruder body/inlet and mark at 120mm with a fine marker (mark high so the reference point never disappears into the extruder).\n5. Send G1 E100 F60 — extrude 100mm at exactly 1mm/s (slow, so the extruder is not flow-limited). Do not touch the filament while it feeds.\n6. After it stops, measure the distance from the extruder inlet to your mark. Actual extruded = 120 - (remaining distance to mark). Example: mark is now 22mm from inlet -> actual = 120 - 22 = 98mm.\n7. Compute: new_esteps = current_esteps * (100 / actual). Example: 423 * (100/98) = 431.6.\n8. Apply with M92 E<new> then M500 to save. Re-run steps 3-6 to confirm; iterate until actual is within +/-1mm of 100mm (1%).\nPASS: actual extrusion 99-101mm with E423 -> no change needed; bake the verified value into Configuration.h. FAIL: consistently off by >1mm -> set corrected M92 value, M500, and update DEFAULT_AXIS_STEPS_PER_UNIT.\n\nPART B — FLOW / EXTRUSION MULTIPLIER (single-wall, per filament):\nSlicer test object setup: hollow cube (~20-30mm), perimeters/walls = 1, top layers = 0, bottom layers = 0, infill = 0%, line/extrusion width set EXPLICITLY equal to nozzle (0.4mm), layer height 0.2mm, print slow (e.g. 30-60mm/s), spiral/vase mode optional. Start EM/flow at 1.0 (or 92-98% if pre-narrowing per Ellis).\n1. Print the cube. Let it cool.\n2. With digital calipers, measure wall thickness near the TOP/last layers (pressure has stabilized), 3+ readings per wall on all 4 walls, away from the seam and corners. Apply light, consistent caliper pressure — over-squeezing reads thin and inflates EM.\n3. Average all measurements = measured_width.\n4. Compute: new_EM = current_EM * (target_line_width / measured_width), where target_line_width = your slicer's set width (0.4mm). Equivalent: new_flow% = (0.4 / measured) * current_flow%.\n   Example: set width 0.4mm, measured avg 0.42mm, current EM 1.0 -> new EM = 1.0 * 0.4/0.42 = 0.952 (95.2%).\n5. Re-slice with the new EM, reprint, re-measure. Iterate until measured = target +/-0.02mm (~ +/-2%).\nPASS: measured wall = 0.40mm +/-0.02mm AND top surface (on a solid-top cube) is smooth with no gaps or ridges. FAIL/over-extruding: walls >0.42mm, rough/ridged tops, blobby corners. FAIL/under-extruding: walls <0.38mm, gaps/valleys between top lines, translucent thin walls.\n\nELLIS ALTERNATIVE (preferred for final accuracy): print several 30x30x3mm cubes (10-11 top layers, top line width 100% = 0.4mm, monotonic top, 30%+ infill, moderate fan) at 1-2% EM steps; pick the cube whose top is smoothest with no gaps and no roughness, examining the CENTER not the edges. If undecided, pick the higher EM. This avoids caliper error entirely.\n\nNOTE ON ORDER: Tune LIN_ADVANCE K (currently 0.0, untuned) before finalizing flow — untuned pressure advance over-extrudes at corner decel, biasing single-wall measurements. Canonical order: E-steps -> Linear Advance -> Flow.",
+  "recommendations": [
+    {
+      "title": "Verify (don't blindly trust) E423 with a 100mm extrude test, then lock it in",
+      "priority": "Medium",
+      "currentValue": "DEFAULT_AXIS_STEPS_PER_UNIT { 80, 80, 400, 423 } (E=423)",
+      "recommendedValue": "Keep 423 if test reads 99-101mm; otherwise set new = 423 * (100/actual) and update firmware",
+      "rationale": "Creality's stock recommendation for the Sprite Extruder Pro is 424.9, so 423 is only ~0.45% off and almost certainly already calibrated — but E-steps gate every other extrusion calibration, so verify once. Run M83; G1 E100 F60 (1mm/s avoids flow-limiting); mark filament at 120mm; actual = 120 - remaining. new_esteps = 423 * (100/actual). Apply with M92/M500, iterate to within +/-1mm (1%). EDITABLE_STEPS_PER_UNIT (line 1203) and EEPROM_SETTINGS make M92+M500 persist; bake the final value back into Configuration.h line 1201.",
+      "howToApply": "Terminal: M503 (read), M83, G1 E100 F60, measure, M92 E<value>, M500. Persist in /Users/S225608/Documents/dev/Hoverfly/Firmware/Marlin/Configuration.h line 1201: #define DEFAULT_AXIS_STEPS_PER_UNIT { 80, 80, 400, <calibrated_E> }",
+      "sources": [
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/extruder_calibration.html",
+        "https://manuals.plus/creality/sprite-extruder-pro-kit-manual",
+        "https://teachingtechyt.github.io/calibration.html"
+      ]
+    },
+    {
+      "title": "Extrude at 1mm/s (F60) and mark at 120mm for the E-steps test",
+      "priority": "Medium",
+      "currentValue": "n/a (test procedure)",
+      "recommendedValue": "G1 E100 F60, mark at 120mm, measure last few mm at extruder inlet",
+      "rationale": "Extruding the full 100mm at 1mm/s keeps the hotend from becoming the bottleneck (a fast extrude can slip/skip and read falsely high E-steps). Marking at 120mm rather than 100mm keeps the reference mark visible above the extruder body so it never disappears into the gears; actual = 120 minus the remaining gap. This is exactly Ellis' method.",
+      "howToApply": "Heat to print temp first; M83; G1 E100 F60; do not touch the filament during the move.",
+      "sources": [
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/extruder_calibration.html"
+      ]
+    },
+    {
+      "title": "Calibrate flow per-filament with a single-wall cube: EM_new = EM_old * (0.4 / measured)",
+      "priority": "High",
+      "currentValue": "Flow/EM 1.0 (slicer default, per-filament)",
+      "recommendedValue": "Computed per filament; most PLA/PETG lands ~0.92-0.98 (92-98%)",
+      "rationale": "Flow is a separate, material-specific correction layered on top of correct E-steps — it accounts for filament diameter tolerance and material squish. Single-wall measurement gives an objective number: set slicer line width explicitly to the 0.4mm nozzle, print a 1-perimeter hollow cube with 0 top/bottom and 0% infill, measure wall thickness with calipers (3+ readings per wall, near the top layers, light pressure), average, and compute EM_new = EM_old * (target_width / measured_width). Iterate to measured = 0.40 +/-0.02mm. Light, consistent caliper pressure matters — over-squeezing reads thin and pushes EM too high.",
+      "howToApply": "Slicer: walls=1, top/bottom layers=0, infill=0%, line width=0.4mm, 0.2mm layer height, slow speed. After measuring, set Filament -> Flow ratio / Extrusion multiplier to the computed value.",
+      "sources": [
+        "https://teachingtechyt.github.io/calibration.html",
+        "https://help.prusa3d.com/article/extrusion-multiplier-calibration_2257",
+        "https://www.3dmakerengineering.com/blogs/3d-printing/flow-rate-calibration"
+      ]
+    },
+    {
+      "title": "Prefer Ellis' top-surface visual method for the final flow number",
+      "priority": "Medium",
+      "currentValue": "n/a (method choice)",
+      "recommendedValue": "30x30x3mm solid-top cubes at 1-2% EM steps; pick smoothest center top",
+      "rationale": "Ellis argues caliper measurement is error-prone (operator pressure, wall artifacts) and instead recommends printing solid-top cubes across a small EM range and selecting the one whose TOP CENTER is smoothest with no gaps (under-extrusion) or ridges (over-extrusion). Use it to confirm or refine the caliper-derived value; if you can't decide between two, pick the higher EM. Examine the center, since edges normally show slight over-extrusion.",
+      "howToApply": "Slicer: 30x30x3mm cube, 10-11 top layers @0.2mm, top line width 100% (0.4mm), monotonic top infill, 2 bottom layers, 30%+ infill, moderate-to-high fan, top speed ~60mm/s. Print at EM steps of 1-2%, refine at 0.5%.",
+      "sources": [
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/extrusion_multiplier.html",
+        "https://github.com/AndrewEllis93/Print-Tuning-Guide/blob/main/articles/extrusion_multiplier.md"
+      ]
+    },
+    {
+      "title": "Tune LIN_ADVANCE K before finalizing flow (currently 0.0 = untuned)",
+      "priority": "High",
+      "currentValue": "LIN_ADVANCE enabled, ADVANCE_K 0.0",
+      "recommendedValue": "Tune K (direct-drive Sprite typically lands ~0.02-0.08) before/with flow calibration",
+      "rationale": "Correct calibration order is E-steps -> Linear Advance -> Flow. With ADVANCE_K at 0.0 there is no pressure-advance compensation, so the extruder over-extrudes at corner deceleration and under-extrudes on acceleration. That bulges single-wall corners and seams and biases caliper readings, making the measured wall (and thus computed EM) unreliable. Tune K first (M900 K-test pattern / Marlin LA tower), save, then do final flow. Direct-drive setups need much smaller K than Bowden.",
+      "howToApply": "Print a Marlin Linear Advance test pattern (M900 K<value>), pick the cleanest K, set in firmware Configuration_adv.h ADVANCE_K and/or M900 K<value> + M500. Then redo flow.",
+      "sources": [
+        "https://teachingtechyt.github.io/calibration.html",
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/extrusion_multiplier.html",
+        "https://marlinfw.org/docs/features/lin_advance.html"
+      ]
+    },
+    {
+      "title": "Save and persist: M500 after M92, then mirror into Configuration.h",
+      "priority": "Low",
+      "currentValue": "EEPROM_SETTINGS enabled; firmware E=423",
+      "rationale": "M92 changes are volatile until M500 writes them to EEPROM; without M500 the printer reverts on power cycle. After confirming the calibrated E-steps, also update the firmware default so a future EEPROM reset (M502) restores the correct value rather than an old one. Flow/EM lives in the slicer per-filament, not firmware.",
+      "recommendedValue": "M500 after every M92; update Configuration.h line 1201 to the final E value",
+      "howToApply": "Terminal: M92 E<val> then M500. Firmware: /Users/S225608/Documents/dev/Hoverfly/Firmware/Marlin/Configuration.h line 1201.",
+      "sources": [
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/extruder_calibration.html",
+        "https://marlinfw.org/docs/gcode/M092.html"
+      ]
+    }
+  ],
+  "imageNeeds": [
+    "Photo of filament marked at 120mm above the Sprite extruder inlet before a G1 E100 test",
+    "Diagram of the E-steps math: actual = 120 - remaining, new_esteps = old * 100/actual",
+    "Caliper measuring the wall of a single-wall calibration cube near the top layers",
+    "Comparison of single-wall cube tops: under-extruded (gaps), correct (smooth), over-extruded (ridges)",
+    "Marlin Linear Advance K-factor test tower/pattern showing best K selection"
+  ]
+}

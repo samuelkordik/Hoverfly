@@ -1,0 +1,173 @@
+{
+  "topic": "Firmware Improvement Review — Ender 3 Pro \"Hoverfly\" (SKR Mini E3 V2.0, Sprite Pro Direct Drive, CRTouch)",
+  "summary": "The firmware is in good overall shape, but two issues stand out as genuinely impactful. (1) THE BIGGEST GAP: LIN_ADVANCE is enabled but ADVANCE_K is 0.0, so the most valuable direct-drive feature is doing nothing. For the Sprite Pro direct drive a starting K of ~0.04 is correct, tuned to roughly 0.02-0.06 with PLA. (2) A LATENT CONFLICT: LIN_ADVANCE and S_CURVE_ACCELERATION are BOTH enabled. Marlin's own sanity check forbids this combination unless you also define EXPERIMENTAL_SCURVE; the pairing causes over/under-extrusion at accel/decel edges. Since the config currently compiles, either EXPERIMENTAL_SCURVE is implicitly set or this would fail to build — it must be resolved. The clean fix is to DISABLE S_CURVE_ACCELERATION (it has no benefit alongside LIN_ADVANCE, conflicts with Junction Deviation too, and is mutually exclusive with Input Shaping). Input Shaping is feasible on the SKR Mini E3 V2.0 (STM32F103 @ 72 MHz) but the F103 is the weakest 32-bit board for it — keep step rates modest (this Ender's ~80 steps/mm and ~500 mm/s^2 accel are well within limits) and you MUST disable S_CURVE_ACCELERATION first (they are incompatible). The README \"Dual Z\" claim conflicts with firmware: Z2_DRIVER_TYPE is commented out, so firmware is single-Z. The SKR Mini E3 V2.0 has NO spare stepper driver (X/Y/Z/E only), so true independent dual-Z (with Z auto-alignment) is hardware-impossible on this board — any second Z motor must be wired in series/parallel to the single Z driver, which is mechanically fine but cannot self-level the gantry. Bed PID, junction deviation, GRID density, sensorless homing, probe refinements, EDITABLE_STEPS, and thermal protection are addressed individually below. Tune order: PID (hotend+bed) -> Junction Deviation -> disable S_CURVE -> Input Shaping -> LIN_ADVANCE K (LA must be tuned LAST, after IS).",
+  "stlModel": "",
+  "recommendations": [
+    {
+      "title": "Tune LIN_ADVANCE ADVANCE_K for the Sprite Pro direct drive (biggest single win)",
+      "priority": "High",
+      "currentValue": "ADVANCE_K 0.0 (LIN_ADVANCE enabled but untuned = effectively off)",
+      "recommendedValue": "Start ADVANCE_K 0.04; tune to ~0.02-0.06 for PLA (per-filament)",
+      "rationale": "LIN_ADVANCE compensates for pressure buildup in the melt zone so corners/line-starts get correct width. With K=0.0 the feature does nothing. Direct-drive extruders need small K values (short filament path = low 'spring'). The Sprite Pro is a direct drive; community Klipper pressure-advance values for the Sprite Pro land around 0.037-0.047 s (Polymaker/Overture PLA), which maps closely to Marlin K ~0.03-0.05. Ellis recommends finding a rough range then refining in 0.002 steps. K must be tuned AFTER Input Shaping, because IS changes motion timing. Do NOT trust a single value across spools — re-check per filament/temp.",
+      "howToApply": "Set in Configuration_adv.h: #define ADVANCE_K 0.04 . For live tuning use M900 K0.04 (then M500 to save). Calibrate with Ellis' Pattern/Tower method or Marlin's K-factor test: print a single-wall pattern sweeping K via M900, pick the K with uniform line width and sharpest corners (low K = corner blobs, high K = corner gaps).",
+      "sources": [
+        "https://marlinfw.org/docs/features/lin_advance.html",
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/pressure_linear_advance/pattern_method.html",
+        "https://github.com/LeeOtts/Ender3v2-Klipper-Configs/blob/main/printer.cfg",
+        "https://blog.uavmodel.com/3d-printer-linear-advance-tuning-pressure-advance-in-marlin-and-klipper-2026-guide/"
+      ]
+    },
+    {
+      "title": "Resolve LIN_ADVANCE + S_CURVE_ACCELERATION conflict by disabling S_CURVE",
+      "priority": "High",
+      "currentValue": "S_CURVE_ACCELERATION ENABLED and LIN_ADVANCE ENABLED simultaneously",
+      "recommendedValue": "Disable S_CURVE_ACCELERATION (comment it out)",
+      "rationale": "Marlin has a sanity check that errors out when LIN_ADVANCE and S_CURVE_ACCELERATION are both enabled unless EXPERIMENTAL_SCURVE is explicitly defined — because the combination is known-buggy: S-curve's Bezier accel profile breaks LIN_ADVANCE's timing prediction, producing over/under-extrusion at accel/decel edges (worst at high speed + low accel). S_CURVE also conflicts with JUNCTION_DEVIATION (S-curve effectively stops working unless CLASSIC_JERK is used). And S_CURVE is mutually exclusive with Input Shaping. Since this config currently builds, EXPERIMENTAL_SCURVE is likely silently in play or the build is masking the warning — either way the safe, recommended path is to drop S_CURVE entirely. You lose nothing meaningful: with LIN_ADVANCE + Junction Deviation (and later Input Shaping) doing the smoothing, S_CURVE is redundant and harmful here.",
+      "howToApply": "In Configuration.h comment out: //#define S_CURVE_ACCELERATION . Rebuild and reflash. Do NOT use EXPERIMENTAL_SCURVE as a workaround.",
+      "sources": [
+        "https://github.com/MarlinFirmware/Marlin/issues/22547",
+        "https://github.com/MarlinFirmware/Marlin/issues/14728",
+        "https://github.com/MarlinFirmware/Marlin/issues/16184"
+      ]
+    },
+    {
+      "title": "Enable Input Shaping (X/Y) — feasible on SKR Mini E3 V2.0 with caveats",
+      "priority": "Medium",
+      "currentValue": "INPUT_SHAPING_X / INPUT_SHAPING_Y DISABLED",
+      "recommendedValue": "Enable both; set frequencies via M593 after measuring (typical Ender 3 X/Y resonance ~ 35-60 Hz)",
+      "rationale": "Input Shaping removes ringing/ghosting and lets you raise accel without artifacts. The SKR Mini E3 V2.0 uses an STM32F103 @ 72 MHz (Cortex-M3) — the weakest 32-bit MCU that supports Marlin IS. IS adds significant per-step CPU load; the F103 can stall/grind at very high combined step rates. This printer is low-risk: ~80 steps/mm on X/Y and modest accel (500 mm/s^2) keep step rates far below the limit, so IS is feasible. REQUIREMENT: S_CURVE_ACCELERATION must be disabled (incompatible). For tuning IS, set high test accel (>=1000 mm/s^2) so ringing is visible. IS must be calibrated BEFORE LIN_ADVANCE K. Watch for the known MULTISTEPPING_LIMIT grinding bug at high speeds and the 'IS over-compensates at low speeds' behavior.",
+      "howToApply": "Configuration_adv.h: uncomment #define INPUT_SHAPING_X and #define INPUT_SHAPING_Y. Print Marlin/TH3D ringing tower (15-60 Hz sweep). Measure the cleanest band, compute freq (or use TH3D calculator), then M593 X F<freqX> Y F<freqY> and M500 to save. Default damping zeta 0.15 is a good start. Re-tune LIN_ADVANCE afterward.",
+      "sources": [
+        "https://marlinfw.org/docs/features/input_shaping.html",
+        "https://marlinfw.org/docs/gcode/M593.html",
+        "https://tickets.th3dstudio.com/help-guides/article/unifiedmarlin-input-shaping-tuning-guide",
+        "https://www.th3dstudio.com/marlin-input-shaping-calculator/",
+        "https://github.com/MarlinFirmware/Marlin/issues/25912"
+      ]
+    },
+    {
+      "title": "Resolve Dual-Z discrepancy: README says dual-Z, firmware is single-Z",
+      "priority": "High",
+      "currentValue": "Z2_DRIVER_TYPE COMMENTED OUT (firmware single-Z); README lists 'Dual Z-axis' mod",
+      "recommendedValue": "Keep single-Z in firmware (correct for this board); document that any 2nd Z motor is wired to the single Z driver",
+      "rationale": "Independent dual-Z (separate Z2 driver enabling Z_STEPPER_AUTO_ALIGN / G34 gantry self-leveling) requires a 5th stepper driver. The SKR Mini E3 V2.0 has exactly four integrated TMC2209s (X/Y/Z/E) and NO spare driver port — so true independent dual-Z is hardware-impossible on this board. Therefore Z2_DRIVER_TYPE being commented out is CORRECT. If a second Z motor is physically installed, it must be wired in series (or parallel) to the single Z driver via a splitter; both motors then move identically off one driver. That is mechanically valid and improves gantry rigidity, but it CANNOT auto-align/level the two sides — manual squaring only. The README should be corrected to say 'dual Z motors driven from a single driver (series), no independent Z2 / no G34', to avoid implying gantry auto-leveling exists.",
+      "howToApply": "No firmware change needed. Leave //#define Z2_DRIVER_TYPE commented. If running two motors on one driver, ensure the Z driver current (M906 Z / Configuration_adv TMC current) accounts for the added load; verify both wired in series (not over-current). Update README mod description. (Upgrading to a board with a spare driver would be required for real independent dual-Z.)",
+      "sources": [
+        "https://wiki.layerfused.com/en/printers/mods/unknown/dual-z-axis",
+        "https://klipper.discourse.group/t/dual-two-z-stepper-motor-for-ender-3-using-skr-mini-e3-v2/11991",
+        "https://caggius.wordpress.com/multiple-z-stepper-motors/"
+      ]
+    },
+    {
+      "title": "Enable bed PID (PIDTEMPBED) and autotune",
+      "priority": "Medium",
+      "currentValue": "PIDTEMPBED DISABLED (bed uses bang-bang)",
+      "recommendedValue": "Enable PIDTEMPBED; run M303 E-1 to get Kp/Ki/Kd",
+      "rationale": "Bang-bang switches the bed fully on/off, causing slow oscillation around the setpoint (often +/-1-3 C). PID feathers power for a tighter, more stable bed temperature, which improves first-layer consistency and reduces thermal drift mid-print. The SKR Mini E3 V2.0 drives the bed via MOSFET that supports PWM, so PID is safe here. This is a clear quality/stability upgrade with no downside for this hardware.",
+      "howToApply": "Configuration.h: uncomment #define PIDTEMPBED. Reflash, then run M303 E-1 S60 C8 U1 (autotune at 60 C, 8 cycles, auto-apply), then M500. (Verify EEPROM stores the new bed PID values via M503.)",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/M303.html",
+        "https://www.3dmakerengineering.com/blogs/3d-printing/pid-tuning-marlin-firmware",
+        "http://www.soliforum.com/topic/1720/massively-improved-bed-temp-stability-if-you-enable-pid/"
+      ]
+    },
+    {
+      "title": "Junction Deviation value — 0.08 is reasonable; verify and lower if ringing persists",
+      "priority": "Low",
+      "currentValue": "JUNCTION_DEVIATION_MM 0.08 (CLASSIC_JERK disabled)",
+      "recommendedValue": "Keep 0.08 as start; consider 0.04-0.05 if you see corner ghosting (or after enabling Input Shaping)",
+      "rationale": "0.08 mm is exactly the value derived from the classic Ender 3 jerk equivalence: JD = 0.4 * jerk^2 / accel = 0.4 * 10^2 / 500 = 0.08, so it is a sensible default and consistent with the printer's 500 mm/s^2 accel. It is on the aggressive side for a direct drive (heavier moving mass on X), so if you see ringing at corners, dropping toward 0.04-0.05 tightens cornering. Note S_CURVE must be off (recommended above) for JD to behave correctly. Once Input Shaping handles ringing, you can keep JD higher for speed.",
+      "howToApply": "Configuration.h: #define JUNCTION_DEVIATION_MM 0.08 (current). To experiment live without reflashing: M205 J0.05 then M500. Tune empirically with a JD calibration cube.",
+      "sources": [
+        "http://blog.kyneticcnc.com/2018/10/computing-junction-deviation-for-marlin.html",
+        "https://marlinfw.org/docs/gcode/M205.html",
+        "https://github.com/MarlinFirmware/Marlin/pull/15481"
+      ]
+    },
+    {
+      "title": "Increase ABL grid density (and adopt high-speed probing tuning)",
+      "priority": "Low",
+      "currentValue": "AUTO_BED_LEVELING_BILINEAR, GRID_MAX_POINTS 4x4",
+      "recommendedValue": "5x5 (optionally consider UBL); keep bilinear if happy",
+      "rationale": "On a 210x210 probing area a 4x4 grid samples every ~70 mm. A glass/PEI Ender bed is usually smooth enough that 4x4 is adequate, but 5x5 better captures center bow/corners with minimal added probe time and improves first-layer flatness. The F103 handles 5x5 bilinear easily. Diminishing returns beyond 5x5 for bilinear; if you want true mesh interpolation with manual touch-ups, UBL is the upgrade path (more flash/RAM, more complex). Pair with MULTIPLE_PROBING already at 2 for repeatability.",
+      "howToApply": "Configuration.h (bilinear block): #define GRID_MAX_POINTS_X 5 (Y follows X). Reflash, re-run G29 and M500. Optional: switch to AUTO_BED_LEVELING_UBL for finer mesh + editable points.",
+      "sources": [
+        "https://marlinfw.org/docs/configuration/configuration.html",
+        "https://www.crosslink.io/2022/04/29/ultra-fast-probing-and-homing-with-marlin-firmware/"
+      ]
+    },
+    {
+      "title": "Sensorless homing on TMC2209 — viable but not recommended over the working CRTouch/endstops",
+      "priority": "Low",
+      "currentValue": "SENSORLESS_HOMING and SENSORLESS_PROBING disabled; STEALTHCHOP_XY enabled; physical endstops in use",
+      "recommendedValue": "Leave disabled unless removing endstops is a goal; if enabled, X/Y only (never Z)",
+      "rationale": "TMC2209 StallGuard4 sensorless homing works on X/Y and can be reliable once tuned, but it requires StealthChop active during homing, careful SGTHRD/homing-current tuning, a homing back-off, and is sensitive to belt tension, speed, and temperature. It removes only the X/Y endstops (this printer already has working endstops), so the upside is marginal. Z sensorless homing is explicitly not recommended (poor first-layer accuracy, nozzle/bed crash risk) — and this printer correctly uses the CRTouch for Z. Net: not worth the reliability tradeoff here unless you specifically want to delete endstop hardware.",
+      "howToApply": "If pursued: Configuration_adv.h enable #define SENSORLESS_HOMING, set X/Y STALL_SENSITIVITY, enable SENSORLESS_BACKOFF_MM { 2, 2, 0 }, keep STEALTHCHOP_XY on, tune with M914 X.. Y.. then M500. Keep Z on CRTouch (do NOT enable SENSORLESS Z).",
+      "sources": [
+        "https://thinkrobotics.com/blogs/tutorials/tmc2209-sensorless-homing-tutorial-complete-setup-guide",
+        "https://github.com/MarlinFirmware/Marlin/pull/16153",
+        "https://www.crosslink.io/2020/05/29/marlin-2-0-on-the-skr-1-3-with-tmc2209-and-sensorless-homing/",
+        "https://github.com/MarlinFirmware/Marlin/issues/23052"
+      ]
+    },
+    {
+      "title": "S-curve acceleration interactions — must be off (covered above), summary of why",
+      "priority": "Medium",
+      "currentValue": "S_CURVE_ACCELERATION ENABLED",
+      "recommendedValue": "Disabled",
+      "rationale": "Consolidated rationale: S_CURVE conflicts with all three of the other motion features this printer uses or should use — (a) LIN_ADVANCE (buggy timing, gated behind EXPERIMENTAL_SCURVE sanity check), (b) JUNCTION_DEVIATION (S-curve silently stops working without CLASSIC_JERK), and (c) INPUT_SHAPING (mutually exclusive). There is no configuration in which keeping S_CURVE on is correct for this build. Disabling it is the single change that unblocks LIN_ADVANCE tuning, clean Junction Deviation behavior, and Input Shaping.",
+      "howToApply": "Configuration.h: //#define S_CURVE_ACCELERATION . (Same action as the dedicated S_CURVE recommendation; listed here for the S-curve-interactions topic.)",
+      "sources": [
+        "https://github.com/MarlinFirmware/Marlin/issues/22547",
+        "https://github.com/MarlinFirmware/Marlin/issues/16184",
+        "https://marlinfw.org/docs/features/input_shaping.html"
+      ]
+    },
+    {
+      "title": "Probe / leveling refinements (CRTouch in BLTOUCH mode)",
+      "priority": "Medium",
+      "currentValue": "Z_PROBE_FEEDRATE_FAST 240, SLOW 120 mm/min; MULTIPLE_PROBING 2; PROBING_MARGIN 50; offset {-30,-40,-3.49}; preheat-before-leveling on; RESTORE_LEVELING_AFTER_G28 on; babystep Z-offset DISABLED",
+      "recommendedValue": "Enable BABYSTEP_ZPROBE_OFFSET; keep SLOW ~120 (raise to <=180 only if accurate); verify offset with M48; consider tightening PROBING_MARGIN",
+      "rationale": "CR-Touch is sensitive to high-speed timing; a slow final probe (SLOW 120 mm/min) is exactly right for repeatability, and MULTIPLE_PROBING 2 averages out noise — both good. The most useful refinement: enable BABYSTEP_ZPROBE_OFFSET so live-Z babystepping persists into the Z probe offset (saved with M500), letting you dial first-layer squish on the fly — currently babystepping is on but it doesn't adjust the probe offset, so tweaks are lost. PROBING_MARGIN 50 is conservative given the firmware bed was already reduced to 210x210 to keep the probe on-bed; you may be able to lower the margin to widen the leveled area (validate the -30/-40 nozzle-to-probe offset keeps all points on the physical bed). Run M48 to confirm probe repeatability (<0.01-0.02 mm is good) before trusting the mesh.",
+      "howToApply": "Configuration.h: enable #define BABYSTEP_ZPROBE_OFFSET (under BABYSTEPPING). Validate probe: M48 P10. Re-check Z offset: M851 Z-3.49 then live-adjust with babystep and M500. Optionally reduce #define PROBING_MARGIN after confirming reachable points. Consider BLTOUCH_DELAY tuning only if probing errors appear.",
+      "sources": [
+        "https://marlinfw.org/docs/configuration/probes.html",
+        "https://github.com/mriscoc/Ender3V2S1/wiki/3D-BLTouch",
+        "https://github.com/MarlinFirmware/Marlin/issues/19275"
+      ]
+    },
+    {
+      "title": "EDITABLE_STEPS_PER_UNIT — keep enabled",
+      "priority": "Low",
+      "currentValue": "EDITABLE_STEPS_PER_UNIT ENABLED",
+      "recommendedValue": "Keep enabled",
+      "rationale": "This option keeps steps/mm editable at runtime (M92) and stored in EEPROM. Its flash/RAM cost is negligible on the STM32F103 (256 KB flash, plenty of headroom for this feature set). Disabling it has a documented downside: it can trigger EEPROM-validation/'EEPROM corrupt' messages on boot. Since the extruder steps are calibrated (E=423 for the Sprite) and you may re-calibrate per future mods, keeping M92 editable is convenient. No reason to disable on this board.",
+      "howToApply": "Configuration.h: leave #define EDITABLE_STEPS_PER_UNIT enabled. Use M92 E423 (and M500) for runtime steps changes. Only disable if you ever hit a genuine flash-space wall, which this config is far from.",
+      "sources": [
+        "https://github.com/MarlinFirmware/Marlin/issues/26678",
+        "https://marlinfw.org/docs/gcode/M92.html"
+      ]
+    },
+    {
+      "title": "Thermal protection — keep enabled; relax WATCH periods only until PID is tuned",
+      "priority": "Medium",
+      "currentValue": "THERMAL_PROTECTION for hotend/bed/chamber ENABLED; hotend PID set; bed currently bang-bang (PID being added)",
+      "recommendedValue": "Keep all thermal protection ON; temporarily relax WATCH/HYSTERESIS during PID autotune, then restore defaults",
+      "rationale": "Thermal protection is a safety feature and must stay enabled — never disable it to silence errors. The only legitimate tweak: while running bed PID autotune (newly enabled) or if you get false 'heating failed' trips, temporarily lengthen WATCH_TEMP_PERIOD / WATCH_BED_TEMP_PERIOD (e.g. 40-60 s) and increase WATCH_*_HYSTERESIS so an untuned PID doesn't false-trigger; then return to defaults (default ~ 40 s / 4 C drift window) once tuned. The Sprite Pro heats fast, so the default 20 s/2 C watch window for the hotend is fine and no relaxation is normally needed. M303 PID tuning (hotend + bed) is the real fix for any thermal-protection false positives.",
+      "howToApply": "Configuration.h / Configuration_adv.h: keep THERMAL_PROTECTION_HOTENDS / _BED / _CHAMBER defined. If false trips during tuning: raise WATCH_BED_TEMP_PERIOD to 60 and WATCH_BED_TEMP_INCREASE / hysteresis slightly, reflash, autotune (M303), then revert. Always run M303 E0 (hotend) and M303 E-1 (bed) first.",
+      "sources": [
+        "https://marlinfw.org/docs/basics/troubleshooting.html",
+        "https://toms3d.org/2018/05/09/make-your-3d-printer-safer-marlin-configuration/",
+        "https://jgaurorawiki.com/thermal-runaway"
+      ]
+    }
+  ],
+  "procedure": "SUGGESTED TUNING ORDER (each step depends on the previous): 1) Reflash with S_CURVE_ACCELERATION disabled and PIDTEMPBED enabled. 2) PID autotune hotend (M303 E0 S210 C8 U1) and bed (M303 E-1 S60 C8 U1), M500. 3) Verify Junction Deviation 0.08 with a cornering test; lower toward 0.05 if ringing. 4) Enable + tune Input Shaping: print 15-60 Hz ringing tower at high accel, read cleanest band, M593 X F.. Y F.., M500. 5) ONLY THEN tune LIN_ADVANCE: M900 K sweep starting near 0.04 on a single-wall test, pick uniform line width, set ADVANCE_K and M500. Pass/fail: bed temp should hold within ~+/-0.5 C after PID (vs +/-1-3 C bang-bang); corners should be sharp with no ghosting after IS; line width uniform with no corner blobs/gaps after LA. M48 probe repeatability should be <0.02 mm.",
+  "imageNeeds": [
+    "LIN_ADVANCE / pressure-advance calibration pattern showing under-tuned (corner blobs) vs over-tuned (corner gaps) vs correct uniform line width",
+    "Input Shaping ringing tower with frequency sweep labeled, showing where ghosting disappears",
+    "Diagram of SKR Mini E3 V2.0 driver layout (X/Y/Z/E only, no 5th driver) illustrating why independent dual-Z is impossible and how a 2nd Z motor wires in series to the single Z driver",
+    "Bed temperature graph: bang-bang oscillation vs PID stability",
+    "ABL 4x4 vs 5x5 probe grid overlay on a 210x210 bed showing coverage difference"
+  ]
+}

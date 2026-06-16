@@ -1,0 +1,100 @@
+{
+  "topic": "Max Volumetric Speed, Acceleration & Junction Deviation Tuning",
+  "summary": "Hoverfly's current motion limits are conservative and safe but leave significant performance on the table for a TMC2209 / direct-drive build. Acceleration is capped at 500 mm/s^2 on X/Y (a deliberately safe Marlin default, not a hardware ceiling), and junction deviation (JD) sits at 0.08 mm with CLASSIC_JERK off and S_CURVE_ACCELERATION on. There is no max-volumetric-flow limit being enforced from firmware (that lives in the slicer), and no acceleration/JD tuning has been done empirically.\n\nThree independent things govern how fast this printer can actually move:\n1) Max volumetric flow rate (mm^3/s) - a HOTEND/extruder thermal limit. This is the true speed ceiling: print speed = flow / (layer_height x line_width). For a stock Ender 3 MK8-style hotend this is typically ~10-12 mm^3/s; the Sprite Pro is direct-drive but uses a similar small heatbreak/heater, so expect roughly 10-15 mm^3/s depending on temperature and nozzle. This is set in the slicer, not firmware.\n2) Acceleration - how fast the toolhead changes speed. 500 mm/s^2 is very conservative; the bedslinger Y axis (heavy moving bed) is the limiting axis. Direct-drive carriages add mass to X, so X may also need to stay lower than a Bowden setup. Most modified Ender 3 frames run 1000-2500 mm/s^2 cleanly; the ceiling is reached when ringing/ghosting appears or steppers skip.\n3) Junction deviation - cornering aggressiveness (replaces jerk). 0.08 is a sane Marlin default. JD relates to the old jerk model by d = 0.4 x Jerk^2 / Accel. At accel 500, JD 0.08 corresponds to ~jerk 10 mm/s. Raising JD speeds up corners but increases ringing at corners and risk of skipped steps.\n\nCRITICAL DEPENDENCY: LIN_ADVANCE is enabled but ADVANCE_K = 0.0 (untuned). Pressure/linear advance MUST be tuned before pushing acceleration high, because higher accel exaggerates the extrusion lag/corner-bulge that LIN_ADVANCE corrects. Tuning accel without LA tuned will give misleading results. Likewise INPUT_SHAPING_X/Y are disabled - enabling and tuning input shaping is what actually lets you raise acceleration substantially (it cancels the ringing that otherwise forces accel low). On an STM32F103 (SKR Mini E3 V2) Marlin input shaping is supported but CPU-limited; it works but step rate headroom is limited compared to Klipper.\n\nThe safe, repeatable workflow is: tune E-steps/flow -> set a conservative max volumetric flow in slicer -> tune LIN_ADVANCE K -> (optionally enable + tune input shaping) -> then run acceleration and JD tuning towers, using M201/M204/M205 at runtime so nothing is flashed until a value is proven, then persist with M500. Everything is reversible via M502/re-flash.\n\nDUAL-Z DISCREPANCY (flagged): README claims dual Z but Z2_DRIVER_TYPE is commented out, so firmware is single-Z. This matters for motion tuning because Z acceleration (currently 100) and Z behavior assume one driver. If a second Z motor exists it is either wired in series to the single Z driver (valid, halves available current per motor - watch for Z stalls/missed steps on fast Z moves) or it is not actually installed. This must be resolved before trusting Z motion limits; it does not affect XY accel/JD tuning.",
+  "procedure": "PREREQUISITES (do these first, in order - skipping them invalidates accel/JD results):\n1. Confirm E-steps (423) and flow/extrusion multiplier are calibrated.\n2. Tune LIN_ADVANCE K (separate topic) - direct drive Sprite typically lands K ~0.02-0.06. Acceleration tuning is unreliable until LA is set, because corner bulge from un-tuned LA looks like a too-high-accel artifact.\n3. (Recommended) Enable and tune INPUT_SHAPING_X/Y if you want acceleration meaningfully above ~1500. Without it, ringing caps usable accel.\n\nTEST A - MAX VOLUMETRIC FLOW (hotend ceiling, slicer-side, do this independent of accel/JD):\nMethod (Ellis): Heat nozzle to your normal print temp (try a few temps - hotter flows more). Use the slicer's \"extrude\" or send G1 E commands. Mark 100 mm of filament above the extruder. Command extrusions at increasing feedrates; gcode feedrate is mm/min so multiply target mm/s by 60. After each, measure actual filament consumed vs the 100 mm mark.\nConvert: flow (mm^3/s) = (feedrate_mm_per_min / 60) x 2.4   [2.4 = cross-section of 1.75 mm filament].\nGOOD: ~100 mm pulled in, no extruder clicking/skipping, consistent. BAD/FAIL: clicking, or measured length drops more than ~2-3% below 100 mm (under-extrusion = you have exceeded the hotend's melt rate).\nResult: take the highest clean flow, subtract ~10-15% safety margin, set that as \"max volumetric speed\" in the slicer (Orca/Cura/Prusa). Expect ~10-15 mm^3/s for the Sprite Pro stock hotend with 0.4 nozzle. This is the true print-speed ceiling: speed = flow / layer_height / line_width.\n\nTEST B - ACCELERATION TOWER (XY, mechanical ceiling):\nSlice a tall single-wall test tower (e.g. Teaching Tech acceleration tower or a simple cube) at your normal settings. Insert gcode every N layers to step acceleration. Hold JD/jerk fixed at current value so accel is the only variable.\nPer band send: M201 X<val> Y<val>  then  M204 P<val> T<val>   (P=print accel, T=travel accel).\nStart ~500, step +250-500 per band up to ~2500-3000.\nGOOD: crisp corners, no echo/ghost lines after sharp features, no layer shifts. BAD/FAIL: ringing/ghosting (repeating ripples downstream of corners - cosmetic limit) appears, OR audible stepper buzz + dimensional error + layer shift (skipped steps - hard mechanical limit, back off immediately).\nPick the highest band with acceptable ghosting. Because Y is the heavy bed axis on a bedslinger, you can often set X higher than Y. Set DEFAULT_MAX_ACCELERATION and DEFAULT_ACCELERATION/RETRACT/TRAVEL accordingly. Typical proven values for a modified Ender 3: 1000-2000 mm/s^2 without input shaping, higher with it.\n\nTEST C - JUNCTION DEVIATION TOWER (cornering):\nAfter fixing acceleration at your chosen value, run a tower stepping JD. Per band: M205 J<val>.\nStart at 0.04, step +0.02 up to ~0.20-0.25.\nGOOD: rounded corners stay dimensionally accurate, no corner ringing. BAD/FAIL: ringing concentrated at corners, rounded/clipped corners, or skipped steps. Cross-check against the formula d = 0.4 x Jerk^2 / Accel: at accel 1500, JD 0.08 ~= jerk 17 mm/s; many Ender 3s run JD 0.08-0.13 well.\nPick the highest JD with clean corners, set JUNCTION_DEVIATION_MM.\n\nPERSISTENCE / SAFETY:\nAll of M201/M204/M205 are live and non-destructive. Save a winning set with M500; revert experiments with M501 (reload EEPROM) or M502 (factory/firmware defaults). Check current values anytime with M503. Only edit Configuration.h and re-flash once values are proven, so the firmware defaults match EEPROM. Always keep S_CURVE_ACCELERATION enabled (it smooths the accel ramp and reduces ringing at higher accel).",
+  "recommendations": [
+    {
+      "title": "Tune LIN_ADVANCE K before raising acceleration (hard prerequisite)",
+      "priority": "High",
+      "currentValue": "LIN_ADVANCE enabled, ADVANCE_K 0.0 (untuned)",
+      "recommendedValue": "Tuned K, typically ~0.02-0.06 for direct-drive Sprite",
+      "howToApply": "Run a Linear Advance K-factor test (Ellis pattern/tower method or Marlin K-factor calibration gcode); set live with M900 K<val>, persist via #define LIN_ADVANCE_K in Configuration_adv.h + reflash, or M500. Do this BEFORE acceleration/JD tuning.",
+      "rationale": "Higher acceleration amplifies the extrusion pressure lag that LIN_ADVANCE compensates. With K=0 the corner bulge/gaps caused by un-tuned LA masquerade as acceleration artifacts, so any accel/JD tower you print now gives misleading results. Direct-drive needs far less K than Bowden but it is not zero.",
+      "sources": [
+        "https://marlinfw.org/docs/features/lin_advance.html",
+        "https://ellis3dp.com/Print-Tuning-Guide/articles/pressure_linear_advance/introduction.html"
+      ]
+    },
+    {
+      "title": "Determine max volumetric flow and set it as the slicer speed ceiling",
+      "priority": "High",
+      "currentValue": "Not enforced (no MVF limit set; relying on feedrate caps only)",
+      "recommendedValue": "Measured clean flow minus ~10-15% (expect ~10-15 mm^3/s for Sprite Pro 0.4mm)",
+      "howToApply": "Run Ellis MVF test (heat nozzle, mark 100mm filament, extrude at increasing mm/min, find where >2-3% under-extrusion or clicking begins). Convert: flow = (mm_per_min/60) x 2.4. Set the result (with margin) as 'Max volumetric speed' in Orca/Cura/Prusa. speed = flow / layer_height / line_width.",
+      "rationale": "Volumetric flow is the real top-speed limit and is a hotend/extruder thermal property, independent of accel/JD. Without it set, the slicer can command speeds the hotend cannot melt, causing under-extrusion regardless of how high acceleration is. This is set in the slicer, not firmware.",
+      "sources": [
+        "https://github.com/AndrewEllis93/Print-Tuning-Guide/blob/main/articles/determining_max_volumetric_flow_rate.md"
+      ]
+    },
+    {
+      "title": "Raise XY acceleration empirically via an acceleration tower (do not guess)",
+      "priority": "High",
+      "currentValue": "DEFAULT_MAX_ACCELERATION {500,500,...}; DEFAULT_ACCELERATION 500",
+      "recommendedValue": "Test-driven; typically 1000-2000 mm/s^2 (X can exceed Y on a bedslinger)",
+      "howToApply": "Print a single-wall accel tower at normal settings. Per band send M201 X<v> Y<v> and M204 P<v> T<v>, stepping ~500->3000 in 250-500 increments, JD fixed. Choose highest band with acceptable ghosting/no skipped steps. Set DEFAULT_MAX_ACCELERATION and DEFAULT_ACCELERATION/DEFAULT_TRAVEL_ACCELERATION/DEFAULT_RETRACT_ACCELERATION; persist with M500 then reflash to match.",
+      "rationale": "500 mm/s^2 is a deliberately safe Marlin default, not a hardware limit. TMC2209 + a modified Ender 3 frame commonly run 1000-2000+ cleanly. The Y (bed) axis is the heavy, ringing-prone limiter on a bedslinger and direct-drive adds mass to X, so tune per-axis and use the tower to find the cosmetic (ghosting) and mechanical (skipped-step) ceilings.",
+      "sources": [
+        "https://teachingtechyt.github.io/calibration.html",
+        "https://marlinfw.org/docs/gcode/M204.html",
+        "https://marlinfw.org/docs/gcode/M201.html"
+      ]
+    },
+    {
+      "title": "Tune junction deviation after acceleration is fixed",
+      "priority": "Medium",
+      "currentValue": "JUNCTION_DEVIATION_MM 0.08; CLASSIC_JERK disabled",
+      "recommendedValue": "Test-driven; commonly 0.08-0.13 for Ender 3-class machines",
+      "howToApply": "With accel fixed at your chosen value, print a JD tower. Per band send M205 J<v>, stepping 0.04 -> ~0.25 in 0.02. Pick highest J with clean corners and no skipped steps. Sanity-check with d = 0.4 x Jerk^2 / Accel. Set JUNCTION_DEVIATION_MM and persist via M500 / reflash.",
+      "rationale": "JD controls cornering speed (the jerk replacement). 0.08 is a safe default; raising it speeds corners but increases corner ringing and skipped-step risk. JD interacts with acceleration (same formula), so it must be tuned after the acceleration value is locked, not before.",
+      "sources": [
+        "http://blog.kyneticcnc.com/2018/10/computing-junction-deviation-for-marlin.html",
+        "https://marlinfw.org/docs/gcode/M205.html",
+        "https://marlinfw.org/docs/configuration/configuration.html"
+      ]
+    },
+    {
+      "title": "Enable and tune Input Shaping to unlock meaningfully higher acceleration",
+      "priority": "Medium",
+      "currentValue": "INPUT_SHAPING_X / INPUT_SHAPING_Y DISABLED",
+      "recommendedValue": "Enabled with measured resonance frequencies (e.g. M593 X/Y F<freq>)",
+      "howToApply": "Enable INPUT_SHAPING_X/Y in Configuration_adv.h. Find resonance frequency per axis (ringing test print: frequency = print_speed / ringing_wavelength, or accelerometer if available). Set with M593 X F<fx> and M593 Y F<fy>, persist M500. Note: SKR Mini E3 V2 is STM32F103 (low CPU) - input shaping works but limits achievable step rate; keep expectations modest vs Klipper.",
+      "rationale": "Ringing/ghosting is what forces acceleration low. Input shaping actively cancels the dominant resonance, so it is the single change that lets you raise acceleration substantially without cosmetic defects. On the F103 MCU it is CPU-limited but still effective for a bedslinger.",
+      "sources": [
+        "https://www.obico.io/blog/Klipper-ender-3-tuning-guide/",
+        "https://marlinfw.org/docs/configuration/configuration.html"
+      ]
+    },
+    {
+      "title": "Use runtime M-codes + EEPROM, flash firmware only after values are proven",
+      "priority": "Medium",
+      "currentValue": "EEPROM_SETTINGS enabled",
+      "recommendedValue": "Tune live (M201/M204/M205), save M500, then sync Configuration.h",
+      "howToApply": "M503 to read current values; M201/M204/M205 to set live; M500 save; M501 reload EEPROM; M502 reset to firmware defaults. Once a value set is validated, edit the matching #defines in Configuration.h/_adv.h and reflash so power-on defaults equal EEPROM.",
+      "rationale": "All motion limits are runtime-adjustable and fully reversible, so towers can be run without flashing. Flashing only after values are proven keeps firmware defaults and EEPROM consistent and avoids confusing mismatches. EEPROM_SETTINGS being enabled is what makes this workflow safe.",
+      "sources": [
+        "https://marlinfw.org/docs/gcode/M205.html",
+        "https://www.3dprintbeast.com/m204-m201-g-codes/"
+      ]
+    },
+    {
+      "title": "Resolve the dual-Z discrepancy before trusting Z motion limits",
+      "priority": "Medium",
+      "currentValue": "README says dual-Z; Z2_DRIVER_TYPE commented out (single-Z firmware); Z max accel 100",
+      "recommendedValue": "Confirm wiring; if two motors, either series-wire one driver or add dedicated Z2 driver",
+      "howToApply": "Inspect wiring. If a second Z motor exists wired in series to the single Z driver, that is valid but splits current per motor - keep Z accel/feedrate conservative (current 100 accel, 5 mm/s feedrate are fine) and watch for Z stalls. SKR Mini E3 V2 has no spare driver slot, so true independent dual-Z (Z2_DRIVER_TYPE) is not possible without expansion; document it as series-wired or remove the claim.",
+      "rationale": "Z acceleration and feedrate limits assume a known motor/driver configuration. Series-wired dual motors get half current each and can lose steps under aggressive Z moves; an unconfigured second motor would not move at all. This must be clarified so Z limits are trustworthy. It does not affect XY accel/JD tuning.",
+      "sources": [
+        "https://marlinfw.org/docs/configuration/configuration.html",
+        "https://biqu.equipment/products/bigtreetech-skr-mini-e3-v2-0-32-bit-control-board-integrated-tmc2209-uart-for-ender-4"
+      ]
+    }
+  ],
+  "stlModel": "Single-wall acceleration/ringing tower (Teaching Tech acceleration tower); Klipper/Ellis pressure-advance tower for the LIN_ADVANCE prerequisite step; 100mm-marked filament for the max volumetric flow test (no STL)",
+  "imageNeeds": [
+    "Acceleration/ringing tower print showing ghosting bands increasing with acceleration, with the 'best' band annotated",
+    "Diagram of junction deviation: cornering path radius vs JD value and its relation to jerk",
+    "Annotated example of corner bulging (too-low accel / untuned LA) vs corner ringing (too-high accel/JD) side by side",
+    "Volumetric flow test setup: filament marked at 100mm above the Sprite extruder with measurement after extrusion",
+    "Plot of print speed vs layer height/line width at a fixed max volumetric flow rate (the speed = flow / LH / LW relationship)"
+  ]
+}
