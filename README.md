@@ -53,7 +53,7 @@ And in Configuration_adv.h:
 ```
 
 ## Klipper Migration
-Hoverfly is moving from Marlin to Klipper. `klipper/printer.cfg` is the working config, symlinked into `~/printer_data/config/printer.cfg` and run via Mainsail/Moonraker on the host Pi.
+Hoverfly is moving from Marlin to Klipper. `klipper/printer.cfg` is the working config, symlinked into `~/printer_data/config/printer.cfg` and run via Mainsail/Moonraker on the host machine (a headless Ubuntu Server ThinkPad — see [Remote Access](#remote-access) below).
 
 It's derived from BigTreeTech's stock SKR Mini E3 V2.0 reference config, adjusted for Hoverfly's specifics:
 - Z homes exclusively via the CRTouch (`probe:z_virtual_endstop`), matching the old `USE_PROBE_FOR_Z_HOMING` Marlin setup — no physical Z endstop.
@@ -61,3 +61,48 @@ It's derived from BigTreeTech's stock SKR Mini E3 V2.0 reference config, adjuste
 - Display is a Mini12864-style ST7920 graphic panel + rotary encoder, wired entirely through the SKR's EXP1 header.
 
 Still marked as placeholders in the config, pending on-printer calibration: extruder `rotation_distance` (Sprite Extruder Pro's 3.5:1 gearing), extruder/bed PID values, and the BLTouch `z_offset`. The MCU `serial` also needs to be filled in once connected via USB.
+
+## Remote Access
+
+The printer runs on a **headless Ubuntu Server ThinkPad** (no desktop). Everything is used remotely — SSH and web apps — with **no inbound ports opened on the router**. Access is published through a **Cloudflare Tunnel**, so the machine reaches out to Cloudflare and services are exposed at `*.samuelkordik.com` hostnames. This section documents the setup for anyone wanting to replicate it.
+
+### Architecture
+
+```
+Browser / SSH client
+      │  HTTPS / SSH over Cloudflare's edge
+      ▼
+Cloudflare Tunnel  ──►  cloudflared (systemd service on the host)
+                              │
+              ┌───────────────┼────────────────────────┐
+              ▼               ▼                          ▼
+        Mainsail (:80)   SSH (:22)          OrcaSlicer container (127.0.0.1:3000)
+        Klipper/Moonraker                   lscr.io/linuxserver/orcaslicer
+```
+
+- **`cloudflared`** runs as a host `systemd` service (token-based connector). The tunnel token comes from the Cloudflare Zero Trust dashboard and is **not stored in this repo**.
+- **Ingress rules are managed in the Cloudflare dashboard** (Zero Trust → Networks → Tunnels → *Public Hostname*), not in a local config file.
+- Because some origins are host-local (`localhost:80`, `localhost:22`), `cloudflared` stays on the **host** rather than in a container.
+
+### Published routes
+
+| Public hostname | Origin service | Purpose |
+| --- | --- | --- |
+| `trantor2.samuelkordik.com/mainsail` | `http://localhost:80` | Mainsail — printer control |
+| `trantor2.samuelkordik.com/remote` | `ssh://localhost:22` | SSH (browser terminal) |
+| `trantor-ssh.samuelkordik.com` | `ssh://192.168.1.69:22` | SSH (native client) |
+| `slicer.samuelkordik.com` | `http://localhost:3000` | OrcaSlicer in the browser |
+
+### OrcaSlicer in the browser
+
+Rather than a remote desktop, OrcaSlicer runs as a self-contained web app via the
+[LinuxServer.io OrcaSlicer image](https://docs.linuxserver.io/images/docker-orcaslicer/)
+(Selkies), so it's usable from any device including an iPad. It has native Moonraker upload, so you slice and send G-code straight to Mainsail. Key points for replication:
+
+- Bind the container to loopback only (`127.0.0.1:3000`/`:3001`) and expose it **exclusively via the tunnel** — never publish to `0.0.0.0`.
+- Cap CPU/RAM (`cpus`, `cpu_shares`, `mem_limit`) so slicing can't starve an active print.
+- Persist `/config` for profiles and models.
+
+### Securing it
+
+The tunnel makes services publicly reachable, so **authentication is enforced with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)** (email OTP / SSO) in front of every hostname — essential since Mainsail controls physical hardware and the OrcaSlicer web terminal has root inside its container.
