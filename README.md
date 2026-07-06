@@ -51,3 +51,13 @@ And in Configuration_adv.h:
 
 #define E0_AUTO_FAN_PIN FAN1_PIN                  // Hot-end fan is wired to FAN1 connector on board
 ```
+
+## Klipper Migration
+Hoverfly is moving from Marlin to Klipper. `klipper/printer.cfg` is the working config, symlinked into `~/printer_data/config/printer.cfg` and run via Mainsail/Moonraker on the host Pi.
+
+It's derived from BigTreeTech's stock SKR Mini E3 V2.0 reference config, adjusted for Hoverfly's specifics:
+- Z homes exclusively via the CRTouch (`probe:z_virtual_endstop`), matching the old `USE_PROBE_FOR_Z_HOMING` Marlin setup — no physical Z endstop.
+- Probe offsets (-30, -40) and the `safe_z_home` position carry over directly from the Marlin `NOZZLE_TO_PROBE_OFFSET`/`Z_SAFE_HOMING` values above.
+- Display is a Mini12864-style ST7920 graphic panel + rotary encoder, wired entirely through the SKR's EXP1 header.
+
+Still marked as placeholders in the config, pending on-printer calibration: extruder `rotation_distance` (Sprite Extruder Pro's 3.5:1 gearing), extruder/bed PID values, and the BLTouch `z_offset`. The MCU `serial` also needs to be filled in once connected via USB.
