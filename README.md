@@ -62,6 +62,30 @@ It's derived from BigTreeTech's stock SKR Mini E3 V2.0 reference config, adjuste
 
 Still marked as placeholders in the config, pending on-printer calibration: extruder `rotation_distance` (Sprite Extruder Pro's 3.5:1 gearing), extruder/bed PID values, and the BLTouch `z_offset`. The MCU `serial` also needs to be filled in once connected via USB.
 
+## Webcam (crowsnest)
+Webcam streaming is handled by [crowsnest](https://github.com/mainsail-crew/crowsnest) v5, installed via KIAUH and running as the `crowsnest.service` systemd unit. Config lives at `~/printer_data/config/crowsnest.conf`.
+
+**Camera:** Logitech HD Webcam C615 (USB, `046d:082c`), streamed via ustreamer on port 8080 (Mainsail serves it at `/webcam/`). Key `[cam 1]` settings:
+
+```ini
+device: /dev/v4l/by-id/usb-046d_HD_Webcam_C615_790FAF40-video-index0
+resolution: 1920x1080
+max_fps: 15
+custom_flags: --format=MJPEG
+```
+
+- **Use the `/dev/v4l/by-id/...` path, not `/dev/video0`** — the ThinkPad also has a built-in camera, so raw `videoN` numbering can reorder across reboots. `index0` is the capture node (`index1` is metadata). Changes only take effect after `sudo systemctl restart crowsnest`.
+- `--format=MJPEG` forces the camera's hardware MJPEG; without it ustreamer can fall back to raw YUYV, which is ~2fps at 1080p over USB.
+- `max_fps: 15` is a deliberate bandwidth/CPU compromise (fine for print monitoring over the Cloudflare tunnel); raise toward 30 if you want smoother motion and have headroom.
+
+**Python 3.9 requirement (important on Ubuntu 20.04):** crowsnest v5 needs Python **3.9+**, but Ubuntu 20.04's default `python3` is 3.8. Symptoms of the mismatch:
+- `crowsnest.service` crash-loops with `TypeError: 'type' object is not subscriptable` (it uses 3.9+ [PEP 585](https://peps.python.org/pep-0585/) `dict[...]` type subscripting at import time).
+- KIAUH's main menu throws `'str' object has no attribute 'removeprefix'` when rendering crowsnest status (`str.removeprefix` is 3.9+).
+
+Fixes applied on trantor:
+- The crowsnest venv was rebuilt against 3.9: `rm -rf ~/crowsnest-env && python3.9 -m venv --system-site-packages ~/crowsnest-env` (crowsnest has no pip dependencies — it runs as `python -m crowsnest` from pure stdlib — so nothing needs reinstalling), then `sudo systemctl reset-failed crowsnest && sudo systemctl restart crowsnest`.
+- KIAUH's `kiauh/components/crowsnest/crowsnest.py` was locally patched to be 3.8-safe (`version[1:]` instead of `.removeprefix("v")`). **This local patch is overwritten by any KIAUH update** — reapply it, or run KIAUH itself under 3.9, if the menu error returns.
+
 ## Remote Access
 
 The printer runs on a **headless Ubuntu Server ThinkPad** (no desktop). Everything is used remotely — SSH and web apps — with **no inbound ports opened on the router**. Access is published through a **Cloudflare Tunnel**, so the machine reaches out to Cloudflare and services are exposed at `*.samuelkordik.com` hostnames. This section documents the setup for anyone wanting to replicate it.
