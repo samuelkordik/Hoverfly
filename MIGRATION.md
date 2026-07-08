@@ -114,14 +114,26 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
       240°C, PETG target). Marlin's old values are auto-commented, not lost.
 - [x] **Bed PID** — `Kp=71.219 Ki=1.547 Kd=819.913` (`PID_CALIBRATE` at
       80°C, PETG target).
-- [ ] **Bed mesh** — no saved profile yet; run `BED_MESH_CALIBRATE` now that
-      extruder rotation_distance is calibrated, then `SAVE_CONFIG`.
-- [ ] **`[bed_screws]` corner coordinates** — still the generic Ender 3
-      4-corner layout; verify against Hoverfly's actual screw positions via
-      `BED_SCREWS_ADJUST`.
+- [x] **`[bed_screws]` corner coordinates + leveling** — replaced generic
+      Ender 3 placeholders with real coords (jogged nozzle over each screw,
+      read toolhead position), then leveled all 4 corners via
+      `BED_SCREWS_ADJUST` + 0.10mm feeler gauge.
+      ⚠️ **Probe-based `SCREWS_TILT_CALCULATE` is geometrically impossible on
+      this printer and crashed the nozzle into the bed** — the CRTouch's
+      -30/-40 offset puts the probe off the bed for the front screws and the
+      nozzle off the back edge for the rear screws. `[screws_tilt_adjust]`
+      was removed from the config. Use the manual `BED_SCREWS_ADJUST` only.
+- [x] **Bed mesh** — `BED_MESH_CALIBRATE` after leveling brought bed
+      deviation from 0.940mm → 0.254mm (~73%). Saved as `default` profile.
+      ⚠️ **The mesh is NOT auto-applied** — a saved profile just sits there
+      until loaded. Needs `BED_MESH_PROFILE LOAD=default` in the print-start
+      path (see slicer/macros section below).
 - [ ] **Firmware retraction** — starting guesses for the direct-drive Sprite
       Extruder Pro (`retract_length: 0.5`, etc.); tune against real
       oozing/stringing vs. clogging behavior.
+- [ ] **Input shaper / resonance** — not yet touched; worth doing eventually
+      for ringing, but no accelerometer wired, so it's a manual test-print
+      tuning job (or add an ADXL345).
 - [ ] Remember: after **every** `SAVE_CONFIG`, the `printer.cfg` symlink
       breaks (Klipper's backup-via-rename clobbers it — this already
       happened once during this migration, see git history). Re-sync
@@ -151,9 +163,34 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
       `mainsail.samuelkordik.com`/delicass; this route serves nothing now).
       Low priority, noted in trantor's `CLAUDE.md`.
 
-## 7. Final verification
+## 7. Slicer & print-start setup (OrcaSlicer + macros)
 
-- [ ] First real test print on delicass-hosted Klipper, watched closely.
+First test print failed with periodic `Move out of range` — root-caused to
+OrcaSlicer's generic "Generic Klipper Printer" profile not matching this
+printer (bed size and start/end G-code generating moves past X/Y=235 and
+off-bed prime/present moves like `Y -60` and `Y 320 / Z 80`). This whole
+area needs a proper pass:
+
+- [x] **Bed size** corrected in OrcaSlicer to 235×235 (Samuel, 2026-07-08) —
+      resolved the immediate out-of-range failure.
+- [ ] **`PRINT_START` (and `PRINT_END`) macro** in `printer.cfg` — none
+      exists yet. Should home, heat, **load the bed mesh
+      (`BED_MESH_PROFILE LOAD=default`)**, and lay a purge line *within* the
+      235×235 bounds. Preferred over stuffing logic into slicer G-code:
+      version-controlled and keeps the slicer profile thin.
+- [ ] **OrcaSlicer machine start/end G-code** — replace the generic G-code:
+      call `PRINT_START`/`PRINT_END` once those macros exist; ensure no move
+      ever leaves the 235×235×250 envelope (the generic end-gcode "present"
+      move was going to `Y 320 / Z 80`).
+- [ ] **OrcaSlicer profile review generally** — max print height (250),
+      origin (0,0), filament profiles (PLA + PETG, matching the PID temps
+      already tuned: 205/60 PLA, 240/80 PETG), and confirm the whole profile
+      is saved somewhere durable (`~/orcaslicer/config`, persisted volume).
+
+## 8. Final verification
+
+- [ ] First successful test print on delicass-hosted Klipper, watched closely
+      (blocked on the slicer/macros pass above).
 - [ ] Confirm timelapse capture works end-to-end during that print.
 - [ ] Confirm Obico actually flags something (or correctly flags nothing)
       during/after that print.
