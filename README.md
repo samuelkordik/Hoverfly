@@ -127,6 +127,8 @@ Rather than a remote desktop, OrcaSlicer runs as a self-contained web app via th
 - Cap CPU/RAM (`cpus`, `cpu_shares`, `mem_limit`) so slicing can't starve an active print.
 - Persist `/config` for profiles and models.
 
+**Known issue:** the Selkies session can go to a black screen intermittently; suspected cause is `mem_limit` being too tight for the container (currently `8g`) — not yet root-caused. Workaround for now is restarting the container. Revisit and fix properly later.
+
 ### Securing it
 
 The tunnel makes services publicly reachable, so **authentication is enforced with [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)** (email OTP / SSO) in front of every hostname — essential since Mainsail controls physical hardware and the OrcaSlicer web terminal has root inside its container.

@@ -25,17 +25,21 @@ Cloudflare tunnel cutover, Klipper calibration, and some loose ends.
 - [x] crowsnest streaming confirmed (`200` on snapshot, through nginx's
       `/webcam/` proxy).
 
-## 2. Cloudflare tunnel cutover
+## 2. Cloudflare tunnel cutover — done
 
 - [x] `delicass-ssh.samuelkordik.com` already configured and live.
-- [ ] Repoint `mainsail.samuelkordik.com` → delicass (`http://localhost:80`).
-- [ ] Repoint `slicer.samuelkordik.com` → delicass (`http://localhost:3000`).
+- [x] `mainsail.samuelkordik.com` repointed to delicass and confirmed working.
+- [x] `slicer.samuelkordik.com` repointed to delicass and confirmed working.
 - [ ] Decide fate of trantor's remaining routes (`trantor2.samuelkordik.com/mainsail`,
       `/remote`) — remove, or keep trantor reachable for whatever it becomes next.
-- [ ] Once cut over, confirm Mainsail + OrcaSlicer load correctly from outside
-      the LAN (not just `192.168.1.70` directly).
+      Depends on trantor's fate (see loose ends, below).
 - [ ] Decide whether the Obico web dashboard gets a tunnel hostname too (with
       Cloudflare Access in front, like Mainsail) or stays LAN-only.
+
+**Known issue found post-cutover:** OrcaSlicer's Selkies session can go to a
+black screen intermittently. Suspected cause is `mem_limit` (currently `8g`)
+being too tight, but not yet root-caused. Workaround is restarting the
+container. Documented in `README.md`; fix properly on a later date.
 
 ## 3. Software on delicass — done
 
@@ -131,9 +135,17 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
       style choice, and the serial was verified correct via the actual
       hardware move.
 - [x] Stray `klipper/printer.cfg.save` file deleted.
-- [ ] Decide trantor's fate post-migration: repurposed, warm spare, or wound
-      down. Drives how much of `CLAUDE.md` (trantor-centric today) needs
-      rewriting for a two-machine (or delicass-only) world.
+- [x] Trantor's fate decided: repurposed as a general-purpose compute/dev/
+      analysis box. R will be installed for data analysis, but **not**
+      RStudio Server — Positron remote/SSH development is the plan instead.
+      Not urgent, tackle when there's a concrete need. `CLAUDE.md` rewritten
+      on both machines: trantor's now describes its new role, delicass got
+      its own `~/CLAUDE.md` (not tracked in this public repo) covering the
+      full printer-host context.
+- [ ] Clean up trantor's now-stale `trantor2.samuelkordik.com/mainsail`
+      tunnel route in the Cloudflare dashboard (Mainsail moved to
+      `mainsail.samuelkordik.com`/delicass; this route serves nothing now).
+      Low priority, noted in trantor's `CLAUDE.md`.
 
 ## 7. Final verification
 
