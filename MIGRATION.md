@@ -107,11 +107,12 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
 - [ ] **Extruder `rotation_distance`** — currently `4.637`, a starting guess
       for the Sprite Extruder Pro's 3.5:1 gearing. Run the standard
       "measure and trim" extruder calibration.
-- [ ] **Extruder PID** — `PID_CALIBRATE HEATER=extruder`. Marlin's tuned
-      values don't transfer (different PWM scaling/loop timing).
-- [ ] **Bed PID** — `PID_CALIBRATE HEATER=heater_bed`, same reason.
+- [x] **Extruder PID** — `Kp=23.835 Ki=1.558 Kd=91.168` (`PID_CALIBRATE` at
+      240°C, PETG target). Marlin's old values are auto-commented, not lost.
+- [x] **Bed PID** — `Kp=71.219 Ki=1.547 Kd=819.913` (`PID_CALIBRATE` at
+      80°C, PETG target).
 - [ ] **Bed mesh** — no saved profile yet; run `BED_MESH_CALIBRATE` once the
-      above is done, then `SAVE_CONFIG`.
+      extruder rotation_distance is done, then `SAVE_CONFIG`.
 - [ ] **`[bed_screws]` corner coordinates** — still the generic Ender 3
       4-corner layout; verify against Hoverfly's actual screw positions via
       `BED_SCREWS_ADJUST`.
