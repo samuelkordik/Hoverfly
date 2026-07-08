@@ -104,15 +104,18 @@ turned out to be half-right — worth a full audit rather than assuming:
 
 Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
 
-- [ ] **Extruder `rotation_distance`** — currently `4.637`, a starting guess
-      for the Sprite Extruder Pro's 3.5:1 gearing. Run the standard
-      "measure and trim" extruder calibration.
+- [x] **Extruder `rotation_distance`** — `4.637` (unverified placeholder) →
+      `7.501`, via "measure and trim", converged over 3 iterative passes:
+      `4.637` → 175.82mm actual for 100mm commanded → corrected to `8.153`
+      → 92.0mm actual → corrected to `7.501` → 100.01mm actual, converged.
+      Applied live via `SET_EXTRUDER_ROTATION_DISTANCE` between passes for
+      validation before writing permanently to `printer.cfg`.
 - [x] **Extruder PID** — `Kp=23.835 Ki=1.558 Kd=91.168` (`PID_CALIBRATE` at
       240°C, PETG target). Marlin's old values are auto-commented, not lost.
 - [x] **Bed PID** — `Kp=71.219 Ki=1.547 Kd=819.913` (`PID_CALIBRATE` at
       80°C, PETG target).
-- [ ] **Bed mesh** — no saved profile yet; run `BED_MESH_CALIBRATE` once the
-      extruder rotation_distance is done, then `SAVE_CONFIG`.
+- [ ] **Bed mesh** — no saved profile yet; run `BED_MESH_CALIBRATE` now that
+      extruder rotation_distance is calibrated, then `SAVE_CONFIG`.
 - [ ] **`[bed_screws]` corner coordinates** — still the generic Ender 3
       4-corner layout; verify against Hoverfly's actual screw positions via
       `BED_SCREWS_ADJUST`.
