@@ -8,24 +8,22 @@ new host. See `README.md` for the finished pieces (webcam, crowsnest, the
 Python 3.9 driver notes, etc.) and `CLAUDE.md` (not in this public repo) for
 full machine-level context.
 
-Status snapshot: delicass is running Ubuntu 24.04, NVIDIA driver + Docker +
-container toolkit installed and GPU-passthrough verified, Klipper/Moonraker/
-Mainsail already running there (no printer.cfg wired to real hardware yet),
-`hoverfly` cloned and printer.cfg synced including the current probe
-calibration. The SKR board and webcam are still physically on trantor.
+Status snapshot: physical migration is complete and verified. delicass is
+running Klipper/Moonraker/Mainsail with the real SKR board and C615 webcam,
+the full self-hosted Obico stack (GPU-accelerated `ml_api`) is up and linked,
+and OrcaSlicer is running with proper CPU/memory caps. Remaining work is the
+Cloudflare tunnel cutover, Klipper calibration, and some loose ends.
 
-## 1. Physical hardware swap (needs printer access, brief downtime)
+## 1. Physical hardware swap — done
 
-- [ ] Confirm no print is active on trantor (`state: standby` in Mainsail).
-- [ ] Stop `klipper` + `moonraker` on trantor.
-- [ ] Move the SKR Mini E3's USB cable from trantor to delicass.
-- [ ] Move the Logitech C615 webcam from trantor to delicass.
-- [ ] On delicass, confirm `/dev/serial/by-id/...` matches what's in
-      `printer.cfg` (`[mcu] serial:`) — should carry over since it's derived
-      from the MCU's own USB descriptor, but verify rather than assume.
-- [ ] Confirm Klipper reaches `state: ready` on delicass with real hardware.
-- [ ] Confirm crowsnest picks up the C615 (`/dev/v4l/by-id/usb-046d_HD_Webcam_C615...`)
-      and the Mainsail webcam view works.
+- [x] Confirmed no print active on trantor before touching anything.
+- [x] Stopped `klipper` + `moonraker` on trantor.
+- [x] Moved the SKR Mini E3's USB cable and the Logitech C615 to delicass.
+- [x] `/dev/serial/by-id/...` and the webcam's `/dev/v4l/by-id/...` both
+      carried over identically — confirmed host-independent, as expected.
+- [x] Klipper reaches `state: ready` on delicass with the real hardware.
+- [x] crowsnest streaming confirmed (`200` on snapshot, through nginx's
+      `/webcam/` proxy).
 
 ## 2. Cloudflare tunnel cutover
 
@@ -36,27 +34,69 @@ calibration. The SKR board and webcam are still physically on trantor.
       `/remote`) — remove, or keep trantor reachable for whatever it becomes next.
 - [ ] Once cut over, confirm Mainsail + OrcaSlicer load correctly from outside
       the LAN (not just `192.168.1.70` directly).
+- [ ] Decide whether the Obico web dashboard gets a tunnel hostname too (with
+      Cloudflare Access in front, like Mainsail) or stays LAN-only.
 
-## 3. Software still to finish on delicass
+## 3. Software on delicass — done
 
-- [ ] `sudo apt install -y docker-compose-plugin ffmpeg`
-- [ ] Bring up OrcaSlicer via `docker compose` (image already pulled and
-      smoke-tested; just needs the compose plugin to launch with proper
-      CPU/memory caps instead of the ad-hoc uncapped test run).
-- [ ] Stand up the full `obico-server` stack (web + Postgres + redis + tasks
-      + `ml_api`) with a GPU device-reservation override for `ml_api` — the
-      upstream compose file has no GPU wiring by default.
-- [ ] Run `migrate` + `collectstatic`, then **you** run `createsuperuser`
-      interactively (deliberately not automating this — don't want to handle
-      your password).
-- [ ] Generate a printer auth token from the Obico web UI.
-- [ ] Install `moonraker-obico` (the separate lightweight client that talks
-      to Moonraker and streams frames) pointed at `http://127.0.0.1:<port>`
-      — everything stays on-box, nothing leaves the LAN.
-- [ ] Decide whether the Obico web dashboard itself gets a tunnel hostname
-      (with Cloudflare Access in front, like Mainsail) or stays LAN-only.
+- [x] `docker compose` working (installed as a per-user CLI plugin binary —
+      `docker-compose-plugin` isn't in Ubuntu's own apt repo, only Docker's
+      official one, so this sidesteps adding another apt source entirely).
+- [x] OrcaSlicer up via `docker compose`, same CPU/mem caps as trantor
+      (`cpus: 6.0`, `mem_limit: 8g`), loopback-only.
+- [x] Full self-hosted `obico-server` stack up: `web`, `redis`, `tasks`,
+      `ml_api` (no separate Postgres needed — defaults to SQLite). GPU
+      reservation added via a `docker-compose.override.yml` (upstream has no
+      GPU wiring by default). Confirmed the Darknet model loads on the P500
+      (`compute_capability = 610`) inside the real stack, not just the
+      earlier standalone smoke test.
+- [x] `.env` created with a freshly generated `DJANGO_SECRET_KEY` (never
+      rely on the hardcoded fallback baked into the public repo) and
+      `SITE_IS_PUBLIC=False` / `ACCOUNT_ALLOW_SIGN_UP=False` for a private
+      instance.
+- [x] Hit and fixed a Django `Site` framework 500 error — the seeded
+      `Site` record defaulted to `localhost:3334`, which didn't match
+      `192.168.1.70:3334`. Updated to match. **If this is ever reached via a
+      different hostname (e.g. a future tunnel route), the `Site` record
+      needs updating again** — it hard-matches by domain.
+- [x] `moonraker-obico` installed and linked to the self-hosted server
+      (`http://127.0.0.1:3334`) — confirmed connected both directions:
+      Moonraker's log shows `Client Identified - Name: Obico, Type: agent`,
+      and the Obico server's DB shows live printer state (temps, status)
+      flowing in.
+- [x] The `moonraker-obico` systemd service needed a manual first `start`
+      after `install.sh` finished — `enable` alone doesn't start it.
 
-## 4. Klipper calibration still needed (placeholders in printer.cfg)
+## 4. Database audit — done
+
+Deliberately skipped copying trantor's `moonraker-sql.db` during the
+software migration (job history was empty, seemed safe to skip). That
+turned out to be half-right — worth a full audit rather than assuming:
+
+- [x] **Webcam registration was missing.** Streaming worked fine
+      (`crowsnest` doesn't need Moonraker to function), but Mainsail didn't
+      know a camera existed because that pairing lives in Moonraker's own
+      `[webcams]` namespace, not in `crowsnest.conf`. Registered via
+      Moonraker's `/server/webcams/item` API, then corrected to match
+      trantor's exact settings (`service: mjpegstreamer-adaptive` not plain
+      `mjpegstreamer`, `aspect_ratio: 16:9` not the default `4:3`, plus
+      matching icon/name/fps).
+- [x] Carried over three real `[mainsail]` preferences via Moonraker's
+      `/server/database/item` API: `general` (printer display name
+      "Hoverfly"), `uiSettings` (custom theme colors), and `dashboard` (a
+      genuinely customized panel layout across desktop/tablet/mobile — not
+      the stock default).
+- [x] Confirmed safe to leave behind: `[moonraker]` instance bookkeeping
+      (`instance_id`, `klippy_connection`, etc. — copying would corrupt
+      delicass's own identity), `[update_manager]` cached hashes
+      (auto-regenerate), `authorized_users` (holds trantor's own API key —
+      a credential, not something to copy; delicass has its own), and minor
+      UX state (`gcodehistory`, `macros` mode, `view` autoscale).
+- [ ] Note: Mainsail also keeps some state in the **browser's** own
+      localStorage (e.g. the saved-instances picker on a phone) — that's
+      client-side and can't be migrated server-side.
+
+## 5. Klipper calibration still needed (placeholders in printer.cfg)
 
 Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
 
@@ -75,28 +115,27 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
       Extruder Pro (`retract_length: 0.5`, etc.); tune against real
       oozing/stringing vs. clogging behavior.
 - [ ] Remember: after **every** `SAVE_CONFIG`, the `printer.cfg` symlink
-      breaks (Klipper's backup-via-rename clobbers it — see the note in
-      recent git history). Re-sync manually: copy the live
-      `printer_data/config/printer.cfg` content back over
-      `hoverfly/klipper/printer.cfg`, delete the stray real file, re-link,
-      commit. Worth switching to a `[include]`-based split (tracked base
-      config + untracked autosave file) if this gets tedious.
+      breaks (Klipper's backup-via-rename clobbers it — this already
+      happened once during this migration, see git history). Re-sync
+      manually: copy the live `printer_data/config/printer.cfg` content
+      back over `hoverfly/klipper/printer.cfg`, delete the stray real file,
+      re-link, commit. Worth switching to a `[include]`-based split (tracked
+      base config + untracked autosave file) if this gets tedious.
 
-## 5. Loose ends to resolve (not blocking print-readiness)
+## 6. Loose ends to resolve (not blocking print-readiness)
 
-- [ ] Two uncommitted local edits on trantor's `printer.cfg` from a
-      concurrent Klipper-bringup session, still sitting in the working tree:
-      the real MCU `serial:` value, and removal of `screw_thread: CW-M3`
-      from `[bed_screws]`. Review and decide whether/how to commit once
-      that session's work is understood — didn't want to absorb someone
-      else's in-progress edits into an unrelated commit.
-- [ ] Stray `klipper/printer.cfg.save` file (editor backup, untracked) —
-      safe to delete once confirmed unneeded.
+- [x] The MCU `serial:` value and `screw_thread: CW-M3` removal (previously
+      uncommitted edits from a concurrent trantor session) are now resolved
+      and committed — turned out `screw_thread` is a hard config error in
+      this Klipper version (confirmed by reproducing it on delicass), not a
+      style choice, and the serial was verified correct via the actual
+      hardware move.
+- [x] Stray `klipper/printer.cfg.save` file deleted.
 - [ ] Decide trantor's fate post-migration: repurposed, warm spare, or wound
       down. Drives how much of `CLAUDE.md` (trantor-centric today) needs
       rewriting for a two-machine (or delicass-only) world.
 
-## 6. Final verification
+## 7. Final verification
 
 - [ ] First real test print on delicass-hosted Klipper, watched closely.
 - [ ] Confirm timelapse capture works end-to-end during that print.
