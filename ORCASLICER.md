@@ -36,27 +36,24 @@ those live in `klipper/printer.cfg` and are already calibrated:
 
 ## 2. Start / end G-code (machine G-code)
 
-**The clean approach (recommended):** create `PRINT_START` / `PRINT_END`
-macros in `printer.cfg` and keep the slicer G-code thin. Those macros don't
-exist yet — see `MIGRATION.md` §7. Sketch of what `PRINT_START` should do:
+**`PRINT_START` / `PRINT_END` macros now exist in `printer.cfg`** (added
+2026-07-09). Keep the slicer G-code thin and just call them. What
+`PRINT_START` does, so you know what to expect:
 
-```gcode
-[gcode_macro PRINT_START]
-gcode:
-    {% set BED = params.BED|default(80)|float %}
-    {% set EXTRUDER = params.EXTRUDER|default(240)|float %}
-    M140 S{BED}                      # start bed heating
-    G28                              # home all
-    M190 S{BED}                      # wait for bed
-    M109 S{EXTRUDER}                 # wait for nozzle
-    BED_MESH_PROFILE LOAD=default    # <-- APPLIES THE SAVED MESH (easy to forget)
-    # purge line near front-left, INSIDE the 235x235 bounds:
-    G1 Z2 F600
-    G1 X5 Y5 F3000
-    G1 Z0.3 F600
-    G1 X120 Y5 E15 F1000             # prime line
-    G1 Z2 F600
-```
+- Heats the bed and waits, so meshing happens at true print-bed temp.
+- Homes and meshes with the nozzle at a **150 °C probe temp** (no ooze on the
+  bed/probe), *then* ramps the nozzle to full print temp.
+- Uses **native adaptive mesh** (`BED_MESH_CALIBRATE ADAPTIVE=1`) — re-meshes
+  each print, probing only the print area. **Requires "Label objects" (§ below)**;
+  without it, it safely falls back to a full 25-point mesh.
+- Purges a line inside the 235×235 bounds, then starts the print.
+
+`PRINT_END` resets speed/flow overrides, retracts, lifts Z, presents the part
+at Y200 (in-bounds), turns off heaters/fan, disables steppers, beeps.
+
+> Note: PRINT_START intentionally re-meshes every print rather than loading the
+> saved `default` profile — the thermal environment shifts, so a fresh mesh is
+> more reliable. The saved profile is now unused (harmless).
 
 **Matching OrcaSlicer machine start G-code** (passes the slicer's temps in):
 
@@ -159,10 +156,15 @@ job, noted in `MIGRATION.md`).
 ## 7. Pre-flight checklist before the real PETG print
 
 - [ ] Machine settings match §1 (bed 235×235, host 192.168.1.70).
-- [ ] `PRINT_START` / `PRINT_END` macros exist and start G-code calls them.
-- [ ] `BED_MESH_PROFILE LOAD=default` is in `PRINT_START` (mesh actually applied).
+- [ ] Machine **start G-code calls** `PRINT_START EXTRUDER=[nozzle_temperature_initial_layer] BED=[bed_temperature_initial_layer_single]`
+      and **end G-code calls** `PRINT_END`. (Macros already exist in `printer.cfg`.)
+- [ ] **"Label objects" is ENABLED** in the OrcaSlicer profile — required for
+      the adaptive mesh (`BED_MESH_CALIBRATE ADAPTIVE=1`) to probe only the
+      print area, and for M486 object-cancellation. Without it, meshing still
+      works but falls back to a full 25-point mesh (slower, not adaptive).
 - [ ] Slice one object, **read the generated G-code header** — confirm temps
-      substituted, and no coordinate exceeds 235 (X/Y) or 250 (Z).
+      substituted, `EXCLUDE_OBJECT_DEFINE` lines are present, and no
+      coordinate exceeds 235 (X/Y) or 250 (Z).
 - [ ] Glue-stick release layer down on the bed for PETG.
 - [ ] Flow rate calibrated (§6 #1).
 - [ ] First-layer watched live on the Mainsail webcam.
