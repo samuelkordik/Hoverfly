@@ -162,6 +162,18 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
       tunnel route in the Cloudflare dashboard (Mainsail moved to
       `mainsail.samuelkordik.com`/delicass; this route serves nothing now).
       Low priority, noted in trantor's `CLAUDE.md`.
+- [ ] **Version-control the whole `printer_data/config/` dir, not just
+      printer.cfg.** The single-file symlink
+      (`printer_data/config/printer.cfg` -> `hoverfly/klipper/printer.cfg`)
+      was **retired 2026-07-09** — Klipper's `SAVE_CONFIG` renames the symlink
+      on every save, silently breaking it (bit us repeatedly). printer.cfg is
+      now a plain file; edits are snapshotted into the hoverfly repo by hand.
+      Need a durable solution covering *all* `*.cfg` (printer.cfg,
+      moonraker.conf, crowsnest.conf, mainsail.cfg, timelapse.cfg,
+      moonraker-obico.cfg, ...). Options: git-init `printer_data/config/` as
+      its own repo, or Moonraker's built-in config-backup-to-GitHub. Decide
+      and implement; until then the hoverfly `klipper/printer.cfg` is a manual
+      snapshot that can drift from the live file.
 
 ## 7. Slicer & print-start setup (OrcaSlicer + macros)
 
@@ -173,11 +185,18 @@ area needs a proper pass:
 
 - [x] **Bed size** corrected in OrcaSlicer to 235×235 (Samuel, 2026-07-08) —
       resolved the immediate out-of-range failure.
-- [ ] **`PRINT_START` (and `PRINT_END`) macro** in `printer.cfg` — none
-      exists yet. Should home, heat, **load the bed mesh
-      (`BED_MESH_PROFILE LOAD=default`)**, and lay a purge line *within* the
-      235×235 bounds. Preferred over stuffing logic into slicer G-code:
-      version-controlled and keeps the slicer profile thin.
+- [x] **`PRINT_START` / `PRINT_END` macros** created in `printer.cfg`
+      (2026-07-09). PRINT_START heats bed, homes + meshes at a low no-ooze
+      probe temp (150C), then ramps the nozzle to full temp and purges a
+      line inside the 235x235 bounds. Uses **native adaptive mesh**
+      (`BED_MESH_CALIBRATE ADAPTIVE=1`) — re-meshes each print (thermal
+      environment shifts), not the static saved profile. PRINT_END resets
+      overrides, retracts, lifts, presents at Y200 (in-bounds), cools down.
+- [ ] **Enable "Label objects" in OrcaSlicer** (emits `EXCLUDE_OBJECT_DEFINE`)
+      — required for the adaptive mesh to probe only the print area, and for
+      M486 object-cancellation. Without labels, adaptive safely falls back to
+      a full 25-point mesh. Confirm the object definitions land *before*
+      PRINT_START runs the mesh (slicer output ordering).
 - [ ] **OrcaSlicer machine start/end G-code** — replace the generic G-code:
       call `PRINT_START`/`PRINT_END` once those macros exist; ensure no move
       ever leaves the 235×235×250 envelope (the generic end-gcode "present"
