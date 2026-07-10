@@ -162,18 +162,18 @@ Probe `z_offset` is done (`3.779`, from `PROBE_CALIBRATE`). Still open:
       tunnel route in the Cloudflare dashboard (Mainsail moved to
       `mainsail.samuelkordik.com`/delicass; this route serves nothing now).
       Low priority, noted in trantor's `CLAUDE.md`.
-- [ ] **Version-control the whole `printer_data/config/` dir, not just
-      printer.cfg.** The single-file symlink
-      (`printer_data/config/printer.cfg` -> `hoverfly/klipper/printer.cfg`)
-      was **retired 2026-07-09** — Klipper's `SAVE_CONFIG` renames the symlink
-      on every save, silently breaking it (bit us repeatedly). printer.cfg is
-      now a plain file; edits are snapshotted into the hoverfly repo by hand.
-      Need a durable solution covering *all* `*.cfg` (printer.cfg,
-      moonraker.conf, crowsnest.conf, mainsail.cfg, timelapse.cfg,
-      moonraker-obico.cfg, ...). Options: git-init `printer_data/config/` as
-      its own repo, or Moonraker's built-in config-backup-to-GitHub. Decide
-      and implement; until then the hoverfly `klipper/printer.cfg` is a manual
-      snapshot that can drift from the live file.
+- [x] **Version-control the whole `printer_data/config/` dir** — done
+      2026-07-09/10. The fragile single-file symlink was retired (Klipper's
+      `SAVE_CONFIG` renamed it on every save). `printer_data/config/` is now
+      its own git repo pushing to a public GPLv3 repo:
+      **github.com/samuelkordik/hoverfly-klipper-config**. A `cron` job
+      (`~/klipper-config-backup.sh`, every 15 min + on boot) auto-commits and
+      pushes. Safety: a **default-deny `.gitignore`** tracks only the authored
+      configs (printer.cfg, moonraker.conf, crowsnest.conf, timelapse.cfg),
+      plus a **pre-commit secret scan** — so `moonraker-obico.cfg`'s auth
+      token (and any future secret) can never reach the public repo. The
+      hoverfly repo's `klipper/printer.cfg` remains a separate historical
+      snapshot; the config repo is now the live source of truth.
 
 ## 7. Slicer & print-start setup (OrcaSlicer + macros)
 
