@@ -213,3 +213,32 @@ area needs a proper pass:
 - [ ] Confirm timelapse capture works end-to-end during that print.
 - [ ] Confirm Obico actually flags something (or correctly flags nothing)
       during/after that print.
+
+## 9. Power & reliability (post-outage, 2026-07-13)
+
+A GFCI trip while away took the printer's outlet down for ~3 days. delicass
+(the host laptop) drained its battery and hard-powered-off for the duration —
+so the "host rides through on battery" assumption doesn't hold; its battery is
+degraded. On reconnect, delicass's WiFi is also **flapping** (dropping off the
+LAN entirely, not just slow) on the weak ~-71 dBm signal.
+
+- [ ] **Hard-wire delicass via Ethernet** — now a blocker, not a nice-to-have.
+      Flaky WiFi keeps knocking the printer host off the network even when it's
+      running. **Setup is PAUSED until this is done.**
+- [ ] **Replace the flaky GFCI outlet** the printer sits behind (user's TODO).
+- [ ] **UPS — size for delicass + the printer PSU**, not just the printer.
+      The dead-battery outage proved the host needs battery backup too.
+      (~1000–1500 VA line-interactive; see the power discussion.)
+- [ ] **Power/system monitoring + alerting** (someday) — e.g. Uptime-Kuma /
+      healthchecks.io / ntfy ping so a host/printer drop notifies immediately
+      (would have flagged this outage while away).
+
+### Resume-here checklist (when delicass is back on a stable link)
+- [ ] Post-outage health sweep: klipper / moonraker / nginx / cloudflared /
+      docker / crowsnest active; Obico + OrcaSlicer + PrintStash containers up;
+      cloudflared still on http2; config-backup cron caught up.
+- [ ] Finish the delicass `CLAUDE.md` service-map entries for **PrintStash**
+      (`~/printstash`, prod compose, `127.0.0.1:3002`, capped) and the
+      **config-backup repo/cron** (`hoverfly-klipper-config`).
+- [ ] (When user signals "b is ready") wire the OrcaSlicer post-process hook +
+      add the Moonraker printer in PrintStash.
